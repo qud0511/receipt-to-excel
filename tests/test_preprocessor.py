@@ -4,6 +4,18 @@ from PIL import Image as PilImage
 from app.services.preprocessor import ProcessedInput, route_file
 
 
+def test_processed_input_has_docling_text_field():
+    pi = ProcessedInput(
+        source_name="test.jpg",
+        source_page=0,
+        docling_text="업체명: 스타벅스\n금액: 5500",
+        pil_image=None,
+    )
+    assert pi.docling_text == "업체명: 스타벅스\n금액: 5500"
+    assert not hasattr(pi, "image_b64")
+    assert not hasattr(pi, "text")
+
+
 def test_unsupported_extension_raises():
     with pytest.raises(ValueError, match="Unsupported"):
         route_file(b"data", "document.txt")

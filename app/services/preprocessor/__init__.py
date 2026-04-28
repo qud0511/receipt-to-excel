@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL.Image import Image as PilImage
@@ -10,9 +10,9 @@ from PIL.Image import Image as PilImage
 class ProcessedInput:
     source_name: str        # 원본 파일명 (로그·오류 추적용)
     source_page: int        # 페이지/슬라이드 번호 (단일 파일은 0)
-    image_b64: str | None   # base64 인코딩 이미지 (VLM 전송용)
-    text: str | None        # 직접 추출 텍스트 (xlsx 전용)
-    pil_image: PilImage | None  # 증적 PDF 병합용 원본 이미지 (xlsx은 None)
+    docling_text: str       # Docling 구조화 텍스트 → Ollama 텍스트 모드로 전달
+    pil_image: PilImage | None  # 증적 PDF 병합용 (xlsx은 None)
+    confidence: float | None = field(default=None)
 
 
 def route_file(file_bytes: bytes, filename: str) -> list[ProcessedInput]:

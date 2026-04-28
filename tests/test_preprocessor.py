@@ -104,3 +104,31 @@ def test_xlsx_returns_single_text_input(simple_xlsx_bytes):
     assert r.pil_image is None
     assert r.text is not None
     assert "5500" in r.text
+
+
+@pytest.fixture
+def two_slide_pptx_bytes() -> bytes:
+    from pptx import Presentation as Prs
+    from pptx.util import Inches
+    prs = Prs()
+    for i in range(2):
+        slide = prs.slides.add_slide(prs.slide_layouts[5])
+        tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(2))
+        tb.text_frame.text = f"영수증 {i + 1}\n금액: {(i + 1) * 1000}원"
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+def test_pptx_one_input_per_slide(two_slide_pptx_bytes):
+    results = route_file(two_slide_pptx_bytes, "slides.pptx")
+    assert len(results) == 2
+
+
+def test_pptx_text_extracted(two_slide_pptx_bytes):
+    results = route_file(two_slide_pptx_bytes, "slides.pptx")
+    assert "영수증 1" in results[0].text
+    assert "영수증 2" in results[1].text
+    assert results[0].source_page == 0
+    assert results[1].source_page == 1
+    assert results[0].pil_image is None

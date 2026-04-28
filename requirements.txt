@@ -2,11 +2,13 @@ fastapi
 uvicorn[standard]
 python-multipart
 openpyxl
-pymupdf
-python-pptx
+docling
 Pillow
 httpx
 aiosqlite
 pydantic-settings
 pytest
 pytest-asyncio
+# test fixture generation only (not used in production code):
+pymupdf
+python-pptx

@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+python-multipart
+openpyxl
+pymupdf
+python-pptx
+Pillow
+httpx
+aiosqlite
+pydantic-settings
+pytest
+pytest-asyncio

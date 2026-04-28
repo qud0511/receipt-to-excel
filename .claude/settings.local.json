@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python3 -m pip install -r /bj-dev/receipt-to-excel/requirements.txt)",
+      "Read(//root/**)",
+      "Bash(env)",
+      "Bash(python3.12 -m ensurepip --upgrade)",
+      "Bash(python3 -m ensurepip)",
+      "Bash(apt-cache show *)",
+      "Bash(dpkg -l python3-pip)",
+      "Bash(apt-get install *)",
+      "Bash(sudo apt-get *)",
+      "Bash(python3 -c \"import pip\")",
+      "Bash(pip3 install *)",
+      "Bash(python3 *)",
+      "Bash(sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12-venv)",
+      "Bash(/bj-dev/receipt-to-excel/.venv/bin/pip install *)",
+      "Bash(.venv/bin/python *)",
+      "Bash(.venv/bin/pytest *)"
+    ]
+  }
+}

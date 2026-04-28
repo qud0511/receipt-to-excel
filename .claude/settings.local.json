@@ -17,7 +17,10 @@
       "Bash(sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12-venv)",
       "Bash(/bj-dev/receipt-to-excel/.venv/bin/pip install *)",
       "Bash(.venv/bin/python *)",
-      "Bash(.venv/bin/pytest *)"
+      "Bash(.venv/bin/pytest *)",
+      "Bash(wait)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

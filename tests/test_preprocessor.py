@@ -53,3 +53,30 @@ def test_png_base64_decodable(white_png_bytes):
     results = route_file(white_png_bytes, "scan.png")
     decoded = base64.b64decode(results[0].image_b64)
     assert len(decoded) > 0
+
+
+@pytest.fixture
+def two_page_pdf_bytes() -> bytes:
+    import fitz
+    doc = fitz.open()
+    for i in range(2):
+        page = doc.new_page(width=200, height=150)
+        page.insert_text((50, 75), f"Page {i + 1}")
+    buf = io.BytesIO()
+    doc.save(buf)
+    doc.close()
+    return buf.getvalue()
+
+
+def test_pdf_one_input_per_page(two_page_pdf_bytes):
+    results = route_file(two_page_pdf_bytes, "invoice.pdf")
+    assert len(results) == 2
+
+
+def test_pdf_page_metadata(two_page_pdf_bytes):
+    results = route_file(two_page_pdf_bytes, "invoice.pdf")
+    assert results[0].source_page == 0
+    assert results[1].source_page == 1
+    assert results[0].image_b64 is not None
+    assert results[0].pil_image is not None
+    assert results[0].text is None

@@ -1,20 +1,10 @@
-import base64
-import io
+from __future__ import annotations
 
-from PIL import Image
-
+from app.services.docling_service import DoclingService
 from . import ProcessedInput
+
+_svc = DoclingService()
 
 
 def process_image(file_bytes: bytes, source_name: str) -> list[ProcessedInput]:
-    img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    b64 = base64.b64encode(buf.getvalue()).decode()
-    return [ProcessedInput(
-        source_name=source_name,
-        source_page=0,
-        image_b64=b64,
-        text=None,
-        pil_image=img,
-    )]
+    return _svc.process(file_bytes, source_name, source_name)

@@ -13,14 +13,14 @@ class DoclingService:
     """DocumentConverter 싱글턴 래퍼. 모든 파일 타입을 ProcessedInput 목록으로 변환."""
 
     def __init__(self) -> None:
-        from docling.document_converter import DocumentConverter
+        from docling.document_converter import DocumentConverter, PdfFormatOption
         from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import PdfPipelineOptions, PipelineOptions
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
 
         pdf_opts = PdfPipelineOptions(generate_page_images=True)
         self._converter = DocumentConverter(
             format_options={
-                InputFormat.PDF: PipelineOptions(pipeline_options=pdf_opts),
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts),
             }
         )
 

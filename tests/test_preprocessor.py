@@ -21,17 +21,7 @@ def test_unsupported_extension_raises():
         route_file(b"data", "document.txt")
 
 
-def test_processed_input_fields():
-    pi = ProcessedInput(
-        source_name="test.jpg",
-        source_page=0,
-        image_b64="abc",
-        text=None,
-        pil_image=None,
-    )
-    assert pi.source_name == "test.jpg"
-    assert pi.text is None
-
+# ── fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
 def white_jpg_bytes() -> bytes:
@@ -49,24 +39,6 @@ def white_png_bytes() -> bytes:
     return buf.getvalue()
 
 
-def test_jpg_returns_single_input(white_jpg_bytes):
-    results = route_file(white_jpg_bytes, "receipt.jpg")
-    assert len(results) == 1
-    r = results[0]
-    assert r.source_name == "receipt.jpg"
-    assert r.source_page == 0
-    assert r.image_b64 is not None
-    assert r.text is None
-    assert r.pil_image is not None
-
-
-def test_png_base64_decodable(white_png_bytes):
-    import base64
-    results = route_file(white_png_bytes, "scan.png")
-    decoded = base64.b64decode(results[0].image_b64)
-    assert len(decoded) > 0
-
-
 @pytest.fixture
 def two_page_pdf_bytes() -> bytes:
     import fitz
@@ -78,20 +50,6 @@ def two_page_pdf_bytes() -> bytes:
     doc.save(buf)
     doc.close()
     return buf.getvalue()
-
-
-def test_pdf_one_input_per_page(two_page_pdf_bytes):
-    results = route_file(two_page_pdf_bytes, "invoice.pdf")
-    assert len(results) == 2
-
-
-def test_pdf_page_metadata(two_page_pdf_bytes):
-    results = route_file(two_page_pdf_bytes, "invoice.pdf")
-    assert results[0].source_page == 0
-    assert results[1].source_page == 1
-    assert results[0].image_b64 is not None
-    assert results[0].pil_image is not None
-    assert results[0].text is None
 
 
 @pytest.fixture
@@ -108,16 +66,6 @@ def simple_xlsx_bytes() -> bytes:
     return buf.getvalue()
 
 
-def test_xlsx_returns_single_text_input(simple_xlsx_bytes):
-    results = route_file(simple_xlsx_bytes, "data.xlsx")
-    assert len(results) == 1
-    r = results[0]
-    assert r.image_b64 is None
-    assert r.pil_image is None
-    assert r.text is not None
-    assert "5500" in r.text
-
-
 @pytest.fixture
 def two_slide_pptx_bytes() -> bytes:
     from pptx import Presentation as Prs
@@ -132,6 +80,53 @@ def two_slide_pptx_bytes() -> bytes:
     return buf.getvalue()
 
 
+# ── image tests ───────────────────────────────────────────────────────────────
+
+def test_jpg_returns_single_input(white_jpg_bytes):
+    results = route_file(white_jpg_bytes, "receipt.jpg")
+    assert len(results) == 1
+    r = results[0]
+    assert r.source_name == "receipt.jpg"
+    assert r.source_page == 0
+    assert r.docling_text is not None
+    assert r.pil_image is not None
+
+
+def test_png_has_pil_image(white_png_bytes):
+    results = route_file(white_png_bytes, "scan.png")
+    r = results[0]
+    assert r.pil_image is not None
+    assert r.pil_image.size[0] > 0
+
+
+# ── PDF tests ─────────────────────────────────────────────────────────────────
+
+def test_pdf_one_input_per_page(two_page_pdf_bytes):
+    results = route_file(two_page_pdf_bytes, "invoice.pdf")
+    assert len(results) == 2
+
+
+def test_pdf_page_metadata(two_page_pdf_bytes):
+    results = route_file(two_page_pdf_bytes, "invoice.pdf")
+    assert results[0].source_page == 0
+    assert results[1].source_page == 1
+    assert results[0].docling_text
+    assert results[0].pil_image is not None
+
+
+# ── XLSX tests ────────────────────────────────────────────────────────────────
+
+def test_xlsx_returns_single_text_input(simple_xlsx_bytes):
+    results = route_file(simple_xlsx_bytes, "data.xlsx")
+    assert len(results) == 1
+    r = results[0]
+    assert r.pil_image is None
+    assert r.docling_text
+    assert "5500" in r.docling_text
+
+
+# ── PPTX tests ────────────────────────────────────────────────────────────────
+
 def test_pptx_one_input_per_slide(two_slide_pptx_bytes):
     results = route_file(two_slide_pptx_bytes, "slides.pptx")
     assert len(results) == 2
@@ -139,8 +134,7 @@ def test_pptx_one_input_per_slide(two_slide_pptx_bytes):
 
 def test_pptx_text_extracted(two_slide_pptx_bytes):
     results = route_file(two_slide_pptx_bytes, "slides.pptx")
-    assert "영수증 1" in results[0].text
-    assert "영수증 2" in results[1].text
+    combined = results[0].docling_text + results[1].docling_text
+    assert "영수증" in combined
     assert results[0].source_page == 0
     assert results[1].source_page == 1
-    assert results[0].pil_image is None

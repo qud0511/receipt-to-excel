@@ -80,3 +80,27 @@ def test_pdf_page_metadata(two_page_pdf_bytes):
     assert results[0].image_b64 is not None
     assert results[0].pil_image is not None
     assert results[0].text is None
+
+
+@pytest.fixture
+def simple_xlsx_bytes() -> bytes:
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws["A1"] = "날짜"
+    ws["B1"] = "금액"
+    ws["A2"] = "2024-01-15"
+    ws["B2"] = 5500
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_xlsx_returns_single_text_input(simple_xlsx_bytes):
+    results = route_file(simple_xlsx_bytes, "data.xlsx")
+    assert len(results) == 1
+    r = results[0]
+    assert r.image_b64 is None
+    assert r.pil_image is None
+    assert r.text is not None
+    assert "5500" in r.text

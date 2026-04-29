@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>영수증 → 지출결의서</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<header>
+  <h1>영수증 → 지출결의서</h1>
+  <p>영수증·매출전표를 업로드하면 엑셀로 변환해 드립니다</p>
+</header>
+
+<!-- Upload card -->
+<div class="card">
+  <h2>파일 업로드</h2>
+
+  <label for="template-select">템플릿</label>
+  <select id="template-select"><option value="">불러오는 중...</option></select>
+
+  <div id="dropzone" class="dropzone">
+    <div class="icon">📂</div>
+    <p><strong>클릭하거나 파일을 드래그</strong>해서 추가하세요</p>
+    <p>JPG · PNG · PDF · XLSX · PPTX 지원</p>
+    <input id="file-input" type="file" accept=".jpg,.jpeg,.png,.pdf,.xlsx,.pptx"
+           multiple hidden />
+  </div>
+
+  <div id="file-list"></div>
+
+  <button id="submit-btn">변환 시작</button>
+</div>
+
+<!-- Progress card -->
+<div class="card" id="progress-section">
+  <h2>진행 상태 <span id="status-badge" class="status-badge badge-pending">대기 중</span></h2>
+  <p id="progress-label" class="progress-label">0/0 완료</p>
+  <div class="progress-bar-wrap">
+    <div id="progress-bar" class="progress-bar"></div>
+  </div>
+  <ul id="failed-list" class="failed-list"></ul>
+</div>
+
+<!-- Result card -->
+<div class="card" id="result-section">
+  <h2>다운로드</h2>
+  <div id="download-btns" class="download-btns"></div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

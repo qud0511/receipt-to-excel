@@ -95,3 +95,27 @@ async def download_excel(
         filename=f"지출결의서_{job_id}.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@router.get("/{job_id}/result/pdf")
+async def download_pdf(
+    job_id: str,
+    job_manager: InMemoryJobManager = Depends(get_job_manager),
+    config: Config = Depends(get_config),
+):
+    try:
+        job = await job_manager.get(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "completed":
+        raise HTTPException(status_code=404, detail="Job not completed yet")
+
+    pdf_path = config.data_dir / "jobs" / job_id / "evidence.pdf"
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="PDF not available")
+
+    return FileResponse(
+        path=pdf_path,
+        filename=f"영수증_{job_id}.pdf",
+        media_type="application/pdf",
+    )

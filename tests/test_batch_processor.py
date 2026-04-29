@@ -3,6 +3,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 from openpyxl import Workbook
 from openpyxl.workbook.defined_name import DefinedName
+from PIL import Image as PilImage
 
 from app.services.batch_processor import run_job
 from app.core.job_manager import InMemoryJobManager
@@ -11,12 +12,13 @@ from app.schemas.receipt import ReceiptData
 from app.schemas.template import Template
 
 
-def make_input(name: str, page: int = 0) -> ProcessedInput:
+def make_input(name: str, page: int = 0, with_image: bool = False) -> ProcessedInput:
+    img = PilImage.new("RGB", (100, 80), color="white") if with_image else None
     return ProcessedInput(
         source_name=name,
         source_page=page,
         docling_text="업체명: 테스트\n금액: 1000",
-        pil_image=None,
+        pil_image=img,
     )
 
 
@@ -64,12 +66,13 @@ async def test_run_job_completes(tmp_data_dir):
     config.ollama_system_prompt = "prompt"
     config.data_dir = tmp_data_dir
 
-    inputs = [make_input("a.jpg"), make_input("b.jpg")]
+    inputs = [make_input("a.jpg", with_image=True), make_input("b.jpg", with_image=True)]
     await run_job("j1", inputs, "tpl_test", mgr, ollama, _make_mock_store(tmp_data_dir), config)
 
     job = await mgr.get("j1")
     assert job.status == "completed"
     assert job.download_url == "/jobs/j1/result"
+    assert job.pdf_url == "/jobs/j1/result/pdf"
 
 
 async def test_run_job_partial_failure(tmp_data_dir):

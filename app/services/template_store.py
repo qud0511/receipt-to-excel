@@ -74,7 +74,7 @@ class TemplateStore:
             raise KeyError(f"Template {template_id!r} not found")
         return _row_to_template(row)
 
-    async def update_prompt(self, template_id: str, prompt: str) -> Template:
+    async def update_prompt(self, template_id: str, prompt: str | None) -> Template:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "UPDATE templates SET custom_prompt = ? WHERE template_id = ?",

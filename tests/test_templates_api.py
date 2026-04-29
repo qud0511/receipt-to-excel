@@ -75,3 +75,24 @@ def test_delete_template(client):
     resp = client.delete(f"/templates/{tid}")
     assert resp.status_code == 204
     assert client.get(f"/templates/{tid}").status_code == 404
+
+
+def test_update_prompt_json(client):
+    reg = client.post(
+        "/templates",
+        files={"file": ("t.xlsx", make_valid_template_bytes(), "application/octet-stream")},
+        data={"name": "prompt-test"},
+    )
+    tid = reg.json()["template_id"]
+
+    # 프롬프트 설정
+    resp = client.put(f"/templates/{tid}/prompt",
+                      json={"custom_prompt": "커스텀 프롬프트"})
+    assert resp.status_code == 200
+    assert resp.json()["has_custom_prompt"] is True
+
+    # null로 초기화
+    resp = client.put(f"/templates/{tid}/prompt",
+                      json={"custom_prompt": None})
+    assert resp.status_code == 200
+    assert resp.json()["has_custom_prompt"] is False

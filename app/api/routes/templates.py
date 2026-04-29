@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from pydantic import BaseModel
 
 from app.api.deps import get_template_store
 from app.schemas.template import Template
@@ -6,6 +7,10 @@ from app.services.excel_mapper import validate_template
 from app.services.template_store import TemplateStore
 
 router = APIRouter()
+
+
+class PromptUpdate(BaseModel):
+    custom_prompt: str | None = None
 
 
 @router.post("", response_model=Template)
@@ -42,11 +47,11 @@ async def get_template(
 @router.put("/{template_id}/prompt", response_model=Template)
 async def update_prompt(
     template_id: str,
-    prompt: str = Form(...),
+    body: PromptUpdate,
     store: TemplateStore = Depends(get_template_store),
 ):
     try:
-        return await store.update_prompt(template_id, prompt)
+        return await store.update_prompt(template_id, body.custom_prompt)
     except KeyError:
         raise HTTPException(status_code=404, detail="Template not found")
 

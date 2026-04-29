@@ -1,8 +1,11 @@
 import io
+from datetime import datetime
 import pytest
 from openpyxl import Workbook, load_workbook
 from openpyxl.workbook.defined_name import DefinedName
-from app.services.excel_mapper import build_excel, validate_template
+from app.services.excel_mapper import (
+    analyze_template, build_excel, inject_named_ranges, validate_template,
+)
 from app.schemas.receipt import ReceiptData
 
 
@@ -70,3 +73,54 @@ def test_build_excel_with_data_start(tmp_path):
     ws = wb.active
     # DATA_START = 5행
     assert ws.cell(row=5, column=3).value == "X"
+
+
+def make_plain_xlsx() -> bytes:
+    """Named Range 없는 일반 xlsx (실제 지출결의서 스타일)."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "경비내역"
+    ws["A1"] = "경비 사용 내역서"
+    ws["A3"] = "일    자"
+    ws["B3"] = "거래처"
+    ws["C3"] = "합    계"
+    ws["D3"] = "비고"
+    ws["A5"] = datetime(2025, 3, 10)  # 첫 데이터 행 — data_start 감지용
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_analyze_template_detects_headers():
+    result = analyze_template(make_plain_xlsx())
+    assert "sheets" in result
+    sheet = result["sheets"][0]
+    assert sheet["name"] == "경비내역"
+    labels = [c["label"] for c in sheet["candidate_headers"]]
+    assert any("일" in l for l in labels)
+    assert sheet["data_start_row"] == 5
+
+
+def test_inject_named_ranges_roundtrip(tmp_path):
+    xlsx = make_plain_xlsx()
+    injected, fields = inject_named_ranges(
+        xlsx,
+        sheet_name="경비내역",
+        field_map={"날짜": "A", "업체명": "B", "금액": "C"},
+        data_start_row=5,
+    )
+    assert set(fields) == {"날짜", "업체명", "금액"}
+
+    wb = load_workbook(io.BytesIO(injected))
+    names = list(wb.defined_names.keys())
+    assert "FIELD_날짜" in names
+    assert "DATA_START" in names
+
+    # build_excel로 실제 쓰기 가능한지 확인
+    tpl = tmp_path / "tpl.xlsx"
+    out = tmp_path / "out.xlsx"
+    tpl.write_bytes(injected)
+    build_excel(tpl, out, [make_receipt("테스트가게", 10000)])
+    wb2 = load_workbook(out)
+    ws2 = wb2.active
+    assert ws2.cell(row=5, column=2).value == "테스트가게"

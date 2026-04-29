@@ -446,3 +446,75 @@ select:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
   gap: 10px;
   margin-top: 16px;
 }
+
+/* ── Column mapper ── */
+#tpl-mapper-section {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--bg);
+}
+
+.mapper-group {
+  margin-bottom: 12px;
+}
+
+.mapper-label {
+  display: block;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+
+.mapper-select, .mapper-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.88rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.mapper-table {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.mapper-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+
+.mapper-row:last-child { border-bottom: none; }
+
+.mapper-header {
+  background: #f0f3ff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 6px 12px;
+}
+
+.mapper-field-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.mapper-col-sel {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 0.82rem;
+  background: var(--surface);
+  color: var(--text);
+  width: 100%;
+}

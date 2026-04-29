@@ -27,11 +27,12 @@ async def run_job(
 
         for i, processed in enumerate(inputs):
             await job_manager.update(job_id, done=i, current_file=processed.source_name)
+            # 증적 PDF는 OCR 성공 여부와 무관하게 항상 수집
+            if processed.pil_image is not None:
+                pdf_pages.append(processed.pil_image)
             try:
                 receipt = await ollama.extract_receipt(processed, system_prompt)
                 receipts.append(receipt)
-                if processed.pil_image is not None:
-                    pdf_pages.append(processed.pil_image)
             except Exception:
                 label = f"{processed.source_name}:p{processed.source_page}"
                 await job_manager.fail_file(job_id, label)

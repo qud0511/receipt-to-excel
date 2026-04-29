@@ -123,4 +123,5 @@ def test_inject_named_ranges_roundtrip(tmp_path):
     build_excel(tpl, out, [make_receipt("테스트가게", 10000)])
     wb2 = load_workbook(out)
     ws2 = wb2.active
-    assert ws2.cell(row=5, column=2).value == "테스트가게"
+    # A5에 기존 datetime 데이터가 있으므로 _first_empty_row 가 row 6 반환
+    assert ws2.cell(row=6, column=2).value == "테스트가게"

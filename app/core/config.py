@@ -3,12 +3,20 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings
 
 _DEFAULT_PROMPT = (
-    "당신은 영수증·매출전표 데이터 추출 전문가입니다."
-    " 이미지 또는 텍스트에서 영수증 정보를 추출하여"
-    " 반드시 아래 JSON 형식으로만 응답하세요."
-    " 마크다운 코드블록 없이 순수 JSON만 출력하세요.\n\n"
-    '{"날짜":"YYYY-MM-DD","업체명":"string","품목":"string",'
-    '"금액":0,"부가세":0,"결제수단":"카드","비고":null}'
+    "You are a receipt data extraction assistant. "
+    "Extract information from the given receipt text and respond ONLY with a JSON object. "
+    "No explanation, no markdown, no code blocks — pure JSON only.\n\n"
+    "Rules:\n"
+    "- 날짜: date in YYYY-MM-DD format (e.g. 2025-03-12)\n"
+    "- 업체명: merchant/store name as a string\n"
+    "- 품목: item or category as a string\n"
+    "- 금액: total amount as an integer (no currency symbol)\n"
+    "- 부가세: VAT amount as an integer (0 if not shown)\n"
+    "- 결제수단: payment method, one of 카드/현금/계좌이체\n"
+    "- 비고: any extra notes or null\n\n"
+    "If a value cannot be determined from the text, use null for strings or 0 for numbers.\n\n"
+    'Example output: {"날짜":"2025-03-12","업체명":"스타벅스","품목":"아메리카노",'
+    '"금액":5500,"부가세":500,"결제수단":"카드","비고":null}'
 )
 
 class Config(BaseSettings):

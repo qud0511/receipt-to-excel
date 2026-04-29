@@ -25,9 +25,9 @@ def test_upload_single_image(client, jpg_bytes):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["total_pages"] == 1
-    assert data["files"][0]["name"] == "receipt.jpg"
-    assert data["files"][0]["pages"] == 1
+    assert "job_id" in data
+    assert data["status"] == "pending"
+    assert data["total"] == 1
 
 
 def test_upload_unsupported_type(client):
@@ -47,4 +47,6 @@ def test_upload_multiple_files(client, jpg_bytes):
         ],
     )
     assert resp.status_code == 200
-    assert resp.json()["total_pages"] == 2
+    data = resp.json()
+    assert "job_id" in data
+    assert data["total"] == 2

@@ -9,18 +9,38 @@ from PIL import Image as PilImage
 from app.services.preprocessor import ProcessedInput
 
 
+def _make_pipeline_options():
+    """Korean EasyOCR + 경량 분석 설정 반환. PDF·IMAGE 공통 사용."""
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, EasyOcrOptions
+    return PdfPipelineOptions(
+        do_ocr=True,
+        ocr_options=EasyOcrOptions(
+            lang=["ko", "en"],
+            force_full_page_ocr=True,
+            confidence_threshold=0.3,
+        ),
+        do_table_structure=False,
+        do_picture_classification=False,
+        do_picture_description=False,
+        generate_page_images=True,
+        images_scale=2.0,
+    )
+
+
 class DoclingService:
     """DocumentConverter 싱글턴 래퍼. 모든 파일 타입을 ProcessedInput 목록으로 변환."""
 
     def __init__(self) -> None:
-        from docling.document_converter import DocumentConverter, PdfFormatOption
+        from docling.document_converter import (
+            DocumentConverter, PdfFormatOption, ImageFormatOption,
+        )
         from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import PdfPipelineOptions
 
-        pdf_opts = PdfPipelineOptions(generate_page_images=True)
+        opts = _make_pipeline_options()
         self._converter = DocumentConverter(
             format_options={
-                InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts),
+                InputFormat.PDF: PdfFormatOption(pipeline_options=opts),
+                InputFormat.IMAGE: ImageFormatOption(pipeline_options=opts),
             }
         )
 
@@ -42,7 +62,6 @@ class DoclingService:
         else:
             return self._single_page(doc, source_name, suffix, file_bytes)
 
-    # ------------------------------------------------------------------
     def _split_by_page(self, doc, source_name: str) -> list[ProcessedInput]:
         page_texts: dict[int, list[str]] = defaultdict(list)
         for item, _level in doc.iterate_items():
@@ -66,7 +85,7 @@ class DoclingService:
             pil_img = self._page_image(doc, page_no)
             results.append(ProcessedInput(
                 source_name=source_name,
-                source_page=page_no - 1,  # Docling 1-indexed → 0-indexed
+                source_page=page_no - 1,
                 docling_text=text,
                 pil_image=pil_img,
             ))

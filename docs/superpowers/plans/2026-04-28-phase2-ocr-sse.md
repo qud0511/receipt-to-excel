@@ -1,5 +1,16 @@
 # Phase 2 — Ollama OCR, Job Manager, SSE Progress Stream
 
+> ⚠️ **[2026-04-29 SUPERSEDED]** 이 문서는 `2026-04-29-phase2-ocr-sse.md`로 대체되었습니다.  
+> **현재 구현과 핵심 차이:**
+> - `OllamaClient`: 이미지/텍스트 분기 → 텍스트 전용 (`docling_text`만 사용)
+> - `ReceiptData`: `업체명`, `품목` → `가맹점명`, `카테고리: ExpenseCategory`
+> - `ProcessedInput`: `image_b64 + text` → `docling_text` 단일 필드
+> - `InMemoryJobManager.create()`: `user_id` 파라미터 추가
+> - `InMemoryJobManager.complete()`: `nup_pdf_url` 파라미터 추가
+> - `JobProgress`: `nup_pdf_url`, `user_id` 필드 추가
+>
+> **이 파일은 히스토리 참조용입니다. 새 구현은 `2026-04-29-phase2-ocr-sse.md`를 사용하라.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ollama OCR 파이프라인 + InMemoryJobManager + SSE 진행률 스트림 구현. 파일 업로드 → 백그라운드 OCR → SSE로 실시간 진행률 확인 가능한 상태.

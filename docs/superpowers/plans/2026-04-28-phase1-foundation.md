@@ -1,5 +1,13 @@
 # Phase 1 — Foundation: Scaffold, Config, Schemas, Preprocessors
 
+> ⚠️ **[2026-04-29 업데이트]** 이 문서의 일부 스키마·코드는 구식입니다.  
+> 현재 구현과의 차이점:
+> - `ReceiptData`: `업체명`→`가맹점명`, `품목` 제거, `카테고리: ExpenseCategory` 추가, `프로젝트명` 추가
+> - `ProcessedInput`: `image_b64 + text` → `docling_text` 단일 필드 (Docling 재설계)
+> - `config.py`: `_DEFAULT_PROMPT`는 구식 스키마 사용 — 현재 `ollama_client.py`의 `_SYSTEM_PROMPT`가 단일 소스  
+> - 전처리기: 모든 포맷이 Docling `DoclingService`로 통합됨 (`pymupdf`, `python-pptx` 직접 사용 제거)  
+> **최신 스키마와 파이프라인은 `2026-04-29-master-refactor.md`를 참조하라.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 프로젝트 뼈대·의존성 설정, Pydantic 스키마 3종, 파일 타입별 전처리기(이미지/PDF/xlsx/pptx → `ProcessedInput`)를 구현하여 이후 OllamaClient·ExcelMapper·BatchProcessor가 의존할 기반 레이어를 완성한다.
@@ -224,14 +232,35 @@ Expected: `ImportError` (모듈 미존재)
 
 - [ ] **Step 3: app/schemas/receipt.py 작성**
 
+> ⚠️ **[구식]** 아래 스키마는 초기 설계입니다. 현재 구현 스키마:
+```python
+# 현재 실제 구현 (app/schemas/receipt.py)
+from typing import Literal
+from pydantic import BaseModel
+
+ExpenseCategory = Literal[
+    "식대", "접대비", "여비교통비", "항공료", "숙박비", "유류대", "주차통행료", "기타비용",
+]
+
+class ReceiptData(BaseModel):
+    날짜: str                          # '2025.12.05' 형식
+    가맹점명: str                       # 비고(O) 컬럼에 기록
+    프로젝트명: str | None = None       # 거래처/프로젝트명(B) 컬럼
+    금액: int
+    부가세: int = 0
+    카테고리: ExpenseCategory = "기타비용"
+    결제수단: Literal["카드", "현금", "계좌이체", "기타"] = "카드"
+    비고: str | None = None
+```
+> 초기 설계 스키마 (참고용):
 ```python
 from pydantic import BaseModel
 from typing import Literal
 
 class ReceiptData(BaseModel):
     날짜: str
-    업체명: str
-    품목: str
+    업체명: str      # ← 현재: 가맹점명
+    품목: str        # ← 현재: 제거됨 (카테고리로 대체)
     금액: int
     부가세: int
     결제수단: Literal["카드", "현금", "계좌이체", "기타"]
@@ -354,6 +383,11 @@ Expected: `ImportError`
 
 - [ ] **Step 3: app/services/preprocessor/__init__.py 작성**
 
+> ⚠️ **[2026-04-29 SUPERSEDED]** 아래 `ProcessedInput`의 `image_b64 + text` 이중 필드는 구식입니다.  
+> 현재 구현은 `docling_text: str | None` 단일 필드만 사용하며, Docling `DocumentConverter`가  
+> 이미지·PDF·PPTX 모두를 마크다운 텍스트로 변환합니다.  
+> 최신 구조는 `2026-04-29-master-refactor.md` → "파이프라인 레이어" 섹션을 참조하라.
+
 ```python
 from __future__ import annotations
 from dataclasses import dataclass
@@ -364,9 +398,10 @@ from PIL.Image import Image as PilImage
 class ProcessedInput:
     source_name: str       # 원본 파일명 (로그·오류 추적용)
     source_page: int       # 페이지/슬라이드 번호 (단일 파일은 0)
-    image_b64: str | None  # base64 인코딩 이미지
-    text: str | None       # 직접 추출 텍스트 (xlsx 전용)
+    image_b64: str | None  # [SUPERSEDED] base64 인코딩 이미지 — 현재 미사용
+    text: str | None       # [SUPERSEDED] 직접 추출 텍스트 — 현재 docling_text로 대체
     pil_image: PilImage | None  # 증적 PDF 병합용 원본 이미지 (xlsx은 None)
+    # 현재 실제 구현: docling_text: str | None (Docling 변환 결과 마크다운)
 
 def route_file(file_bytes: bytes, filename: str) -> list[ProcessedInput]:
     suffix = Path(filename).suffix.lower()

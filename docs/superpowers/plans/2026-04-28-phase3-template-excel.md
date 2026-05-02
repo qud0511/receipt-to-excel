@@ -1,5 +1,21 @@
 # Phase 3 — Template Store, Excel Mapper, xlsx Download
 
+> ⚠️ **[2026-04-29 대규모 업데이트]** 이 문서의 ExcelMapper 설계(Task 2)가 구식입니다.  
+> 아래 변경사항이 새로운 구현 방향입니다:
+>
+> **ExcelMapper 핵심 변경:**
+> - `TemplateMap` 데이터클래스 도입: `data_end_row`, `formula_cols: set[str]`, `category_cols: dict[str, str]` 추가
+> - `clear_data_rows()`: 쓰기 전 DATA_START→data_end_row 범위를 먼저 비워야 함 (기존 구현 없음 → 템플릿 오염 버그 근본 원인)
+> - `write_receipt()`: 수식 열(formula_cols)은 절대 값을 쓰지 않음 (합계/소계 열 보호)
+> - 카테고리 열 모드: `category_cols`로 `{카테고리명: 열문자}` 매핑, 해당 열에만 금액 기록
+> - 하이브리드 모드: FIELD_* Named Range와 category_cols 동시 지원
+>
+> **스키마 변경:**
+> - `ReceiptData`: `업체명`→`가맹점명`, `품목` 제거, `카테고리: ExpenseCategory` 추가
+> - `ExcelMapper` 함수 시그니처: `build_excel()` → `write_receipts_to_template(tmap, receipts, output_path)`
+>
+> **최신 설계는 `2026-04-29-master-refactor.md`를 참조하라.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** xlsx 템플릿 등록/CRUD API, Named Range 기반 ExcelMapper, BatchProcessor 엑셀 쓰기 통합, 완성된 xlsx 다운로드 엔드포인트를 구현한다.
@@ -277,6 +293,16 @@ git commit -m "feat: TemplateStore — SQLite metadata + filesystem xlsx storage
 
 ## Task 2: ExcelMapper (Named Range → 행 추가)
 
+> ⚠️ **[2026-04-29 SUPERSEDED]** 아래 Task 2 구현은 구식입니다.  
+> `build_excel()` / `_data_start_row()` 방식은 다음 문제를 해결하지 못합니다:
+> - **템플릿 오염**: 기존 데이터를 비우지 않고 덮어씀 → `clear_data_rows()` 필요
+> - **수식 열 파괴**: E열(합계 수식)에 값을 덮어씀 → `formula_cols` 필요
+> - **카테고리 열 미지원**: F~N열로 금액을 카테고리별 분기하는 모드 없음
+> - **구 스키마**: `업체명`, `품목` 사용 → 실제 구현은 `가맹점명`, `카테고리`
+>
+> **현재 구현 위치:** `app/services/excel_mapper.py` (실제 파일은 현재 코드 확인)  
+> **목표 구현:** `2026-04-29-master-refactor.md` → "Phase 2: TemplateMap + ExcelMapper 재설계" 참조
+
 **Files:**
 - Create: `app/services/excel_mapper.py`
 - Create: `tests/test_excel_mapper.py`
@@ -299,10 +325,10 @@ def make_template_xlsx(with_data_start: bool = False) -> bytes:
     ws = wb.active
     ws.title = "Sheet1"
     ws["B2"] = "날짜"
-    ws["C2"] = "업체명"
+    ws["C2"] = "업체명"   # [SUPERSEDED] 현재: 가맹점명
     ws["D2"] = "금액"
     wb.defined_names["FIELD_날짜"] = "Sheet1!$B$2"
-    wb.defined_names["FIELD_업체명"] = "Sheet1!$C$2"
+    wb.defined_names["FIELD_업체명"] = "Sheet1!$C$2"  # [SUPERSEDED]
     wb.defined_names["FIELD_금액"] = "Sheet1!$D$2"
     if with_data_start:
         ws["A5"] = "data_start_marker"
@@ -313,8 +339,9 @@ def make_template_xlsx(with_data_start: bool = False) -> bytes:
 
 
 def make_receipt(name: str = "스타벅스", amount: int = 5500) -> ReceiptData:
+    # [SUPERSEDED] 현재 ReceiptData: 가맹점명=name, 카테고리="기타비용", 결제수단 필수
     return ReceiptData(
-        날짜="2024-01-15", 업체명=name, 품목="아메리카노",
+        날짜="2024-01-15", 가맹점명=name, 카테고리="기타비용",
         금액=amount, 부가세=500, 결제수단="카드",
     )
 
@@ -823,15 +850,18 @@ from datetime import datetime
 
 
 def make_input(name: str, page: int = 0) -> ProcessedInput:
+    # [2026-04-29] 현재 ProcessedInput은 docling_text 단일 필드 사용
     return ProcessedInput(
         source_name=name, source_page=page,
-        image_b64="aGVsbG8=", text=None, pil_image=None,
+        image_b64=None, text=None, pil_image=None,
+        docling_text="영수증 텍스트 내용",
     )
 
 
 def make_receipt(name: str = "스타벅스") -> ReceiptData:
+    # [2026-04-29] 현재 스키마: 가맹점명, 카테고리 (업체명·품목 제거)
     return ReceiptData(
-        날짜="2024-01-15", 업체명=name, 품목="아메리카노",
+        날짜="2024-01-15", 가맹점명=name, 카테고리="기타비용",
         금액=5500, 부가세=500, 결제수단="카드",
     )
 

@@ -1,5 +1,11 @@
 # Phase 5 — Browser UI (HTML/CSS/JS)
 
+> ⚠️ **[2026-04-29 업데이트]** UI 다운로드 영역 변경:
+> - **다운로드 버튼 3개**: xlsx, 증적 PDF, **N-up PDF** (2×2 모아찍기) 각각 별도 버튼
+> - **SSE `nup_pdf_url` 필드**: `data.nup_pdf_url`이 설정되면 N-up PDF 버튼 활성화
+> - **SSE `pdf_url` 필드**: `data.pdf_url`이 설정되면 일반 PDF 버튼 활성화
+> - **엔드포인트**: `GET /jobs/{id}/result/pdf` (일반), `GET /jobs/{id}/result/pdf/nup` (N-up)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** curl 없이 브라우저만으로 전체 워크플로우(템플릿 등록 → 영수증 업로드 → 진행률 확인 → 파일 다운로드)를 완수할 수 있는 단일 페이지 UI를 구현한다.

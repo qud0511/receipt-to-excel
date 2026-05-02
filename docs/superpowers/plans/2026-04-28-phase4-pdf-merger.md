@@ -1,5 +1,13 @@
 # Phase 4 — PDF Merger (증적용 영수증 모음 PDF)
 
+> ⚠️ **[2026-04-29 업데이트]** 구현 방향 변경 사항:
+> - **파일 경로**: `config.data_dir / "jobs" / job_id` → `FileSystemManager.from_config(data_dir, user_id)` 사용
+>   - `fs.evidence_pdf(job_id)` → 일반 PDF, `fs.evidence_nup_pdf(job_id)` → N-up PDF
+> - **N-up PDF 추가**: A4@150DPI(1240×1754px) 기준 2×2 격자 배치. 별도 엔드포인트 `GET /jobs/{id}/result/pdf/nup`
+> - **JobProgress**: `pdf_url`, `nup_pdf_url` 모두 포함 (완료 시 두 URL 모두 설정)
+> - **`make_nup_pdf(pdf_pages, nup_path, cols=2, rows=2)`** 함수를 `batch_processor.py` 또는 `pdf_merger.py`에 추가
+> - **user_id 격리**: 잡별로 `data/users/{user_id}/jobs/{job_id}/` 하위에 저장
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 배치 처리 중 수집된 PIL.Image 목록을 하나의 PDF로 병합하는 PdfMerger를 구현하고, BatchProcessor와 다운로드 엔드포인트에 통합한다. xlsx와 증적용 PDF를 동시에 다운로드 가능한 상태.

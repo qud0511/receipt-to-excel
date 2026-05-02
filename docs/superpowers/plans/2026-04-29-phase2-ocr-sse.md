@@ -1,5 +1,13 @@
 # Phase 2 — OllamaClient (텍스트 전용) + JobManager + SSE
 
+> ✅ **[2026-04-29 현재 권위 문서]** `2026-04-28-phase2-ocr-sse.md`를 대체하는 최신 버전.  
+> **업데이트 내역:**
+> - `ReceiptData` 스키마: `가맹점명`, `카테고리: ExpenseCategory`, `프로젝트명` (구 `업체명`·`품목` 제거)
+> - `InMemoryJobManager.create()`: `user_id: str = "default"` 파라미터 추가
+> - `InMemoryJobManager.complete()`: `nup_pdf_url: str | None = None` 파라미터 추가
+> - `JobProgress`: `user_id`, `nup_pdf_url` 필드 추가
+> - **`validate_and_fix()`** (Phase 3에서 추가 예정): LLM JSON 응답 검증 + `ExtractError` — `2026-04-29-master-refactor.md` 참조
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `InMemoryJobManager` + `OllamaClient`(Docling 텍스트 전용 모드) + `BatchProcessor` + SSE 스트림 구현.
@@ -120,11 +128,12 @@ class InMemoryJobManager:
         self._jobs: dict[str, JobProgress] = {}
         self._lock = asyncio.Lock()
 
-    async def create(self, job_id: str, template_id: str, total: int) -> None:
+    async def create(self, job_id: str, template_id: str, total: int, user_id: str = "default") -> None:
         async with self._lock:
             self._jobs[job_id] = JobProgress(
                 job_id=job_id,
                 template_id=template_id,
+                user_id=user_id,
                 status="pending",
                 total=total,
                 done=0,
@@ -151,6 +160,7 @@ class InMemoryJobManager:
         job_id: str,
         download_url: str | None = None,
         pdf_url: str | None = None,
+        nup_pdf_url: str | None = None,
     ) -> None:
         async with self._lock:
             job = self._jobs[job_id]
@@ -160,6 +170,7 @@ class InMemoryJobManager:
                 "current_file": None,
                 "download_url": download_url,
                 "pdf_url": pdf_url,
+                "nup_pdf_url": nup_pdf_url,
             })
 
     async def fail(self, job_id: str, error: str) -> None:
@@ -227,8 +238,9 @@ MOCK_BASE = "http://localhost:11434"
 
 VALID_RECEIPT_JSON = json.dumps({
     "날짜": "2024-01-15",
-    "업체명": "스타벅스",
-    "품목": "아메리카노",
+    "가맹점명": "스타벅스",
+    "카테고리": "기타비용",
+    "프로젝트명": None,
     "금액": 5500,
     "부가세": 500,
     "결제수단": "카드",
@@ -257,7 +269,7 @@ async def test_extract_receipt_sends_docling_text(client, text_input):
         return_value=httpx.Response(200, json={"response": VALID_RECEIPT_JSON})
     )
     receipt = await client.extract_receipt(text_input, "당신은 전문가입니다.")
-    assert receipt.업체명 == "스타벅스"
+    assert receipt.가맹점명 == "스타벅스"
     assert receipt.금액 == 5500
     # 요청 바디에 docling_text가 prompt로 들어갔는지 확인
     sent = json.loads(route.calls[0].request.content)

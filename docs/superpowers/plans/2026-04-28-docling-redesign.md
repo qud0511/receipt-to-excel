@@ -1,5 +1,11 @@
 # Docling 기반 전체 재설계 — Phase Overview
 
+> ✅ **[2026-04-29 상태]** Phase 1(DoclingService + ProcessedInput.docling_text)은 완료.  
+> Phase 2 이후 추가 업데이트:
+> - **ExcelMapper**: `TemplateMap` 도입, `clear_data_rows()`, `formula_cols`, 카테고리 열 모드 — `2026-04-29-master-refactor.md` Phase 2 섹션 참조
+> - **validate_and_fix()**: LLM 응답 검증 + ExtractError — master-refactor.md 참조
+> - **FileSystemManager**: `data/users/{user_id}/jobs/{job_id}/` 격리 구조 확정
+
 > **For agentic workers:** 이 문서는 설계 승인용 개요입니다. 각 Phase 구현 시 별도 상세 플랜 파일을 작성하세요.
 
 **Goal:** Docling을 전처리+OCR 레이어로 도입하여, 기존 파일별 개별 파서(pymupdf/python-pptx/PIL)를 단일 DoclingService로 통합하고, Ollama는 Docling 구조화 텍스트 기반 필드 해석에만 집중하게 한다.

@@ -8,11 +8,12 @@ class InMemoryJobManager:
         self._jobs: dict[str, JobProgress] = {}
         self._lock = asyncio.Lock()
 
-    async def create(self, job_id: str, template_id: str, total: int) -> None:
+    async def create(self, job_id: str, template_id: str, total: int, user_id: str = "default") -> None:
         async with self._lock:
             self._jobs[job_id] = JobProgress(
                 job_id=job_id,
                 template_id=template_id,
+                user_id=user_id,
                 status="pending",
                 total=total,
                 done=0,
@@ -39,6 +40,7 @@ class InMemoryJobManager:
         job_id: str,
         download_url: str | None = None,
         pdf_url: str | None = None,
+        nup_pdf_url: str | None = None,
     ) -> None:
         async with self._lock:
             job = self._jobs[job_id]
@@ -48,6 +50,7 @@ class InMemoryJobManager:
                 "current_file": None,
                 "download_url": download_url,
                 "pdf_url": pdf_url,
+                "nup_pdf_url": nup_pdf_url,
             })
 
     async def fail(self, job_id: str, error: str) -> None:
@@ -57,6 +60,25 @@ class InMemoryJobManager:
                 "status": "failed",
                 "error": error,
             })
+
+    async def add_log(self, job_id: str, msg: str, level: str = "info") -> None:
+        from datetime import datetime, timezone
+        from app.schemas.job import LogEntry
+        async with self._lock:
+            job = self._jobs[job_id]
+            entry = LogEntry(
+                ts=datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                level=level,
+                msg=msg,
+            )
+            self._jobs[job_id] = job.model_copy(update={
+                "logs": job.logs + [entry],
+            })
+
+    async def update_total(self, job_id: str, total: int) -> None:
+        async with self._lock:
+            job = self._jobs[job_id]
+            self._jobs[job_id] = job.model_copy(update={"total": total})
 
     async def get(self, job_id: str) -> JobProgress:
         async with self._lock:

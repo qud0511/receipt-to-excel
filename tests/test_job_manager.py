@@ -53,3 +53,22 @@ async def test_fail_job(mgr):
 async def test_get_nonexistent_raises(mgr):
     with pytest.raises(KeyError):
         await mgr.get("nonexistent")
+
+
+async def test_add_log_appends_entry(mgr):
+    await mgr.create("j1", template_id="t1", total=2)
+    await mgr.add_log("j1", "OCR 시작", "info")
+    await mgr.add_log("j1", "오류 발생", "error")
+    job = await mgr.get("j1")
+    assert len(job.logs) == 2
+    assert job.logs[0].msg == "OCR 시작"
+    assert job.logs[0].level == "info"
+    assert job.logs[1].level == "error"
+    assert ":" in job.logs[0].ts  # HH:MM:SS 형식 확인
+
+
+async def test_update_total(mgr):
+    await mgr.create("j1", template_id="t1", total=3)
+    await mgr.update_total("j1", 10)
+    job = await mgr.get("j1")
+    assert job.total == 10

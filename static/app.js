@@ -9,6 +9,7 @@ const progressSection = document.getElementById('progress-section');
 const resultSection = document.getElementById('result-section');
 
 let selectedFiles = [];
+let lastLogCount = 0;
 
 // ── Template loading ──────────────────────────────────────────────────────────
 
@@ -76,6 +77,10 @@ submitBtn.addEventListener('click', async () => {
   submitBtn.disabled = true;
   progressSection.style.display = 'block';
   resultSection.style.display = 'none';
+  lastLogCount = 0;
+  const logViewer = document.getElementById('log-viewer');
+  logViewer.innerHTML = '';
+  logViewer.classList.remove('visible');
   setStatus('pending');
 
   const fd = new FormData();
@@ -113,11 +118,12 @@ function streamJob(jobId) {
     setStatus(job.status);
     updateProgress(job.done ?? 0, job.total ?? 1, job.current_file ?? '');
     renderFailedFiles(job.failed_files ?? []);
+    renderNewLogs(job.logs ?? []);
 
     if (job.status === 'completed' || job.status === 'failed') {
       es.close();
       submitBtn.disabled = false;
-      if (job.status === 'completed') showResult(jobId, job.pdf_url);
+      if (job.status === 'completed') showResult(jobId, job.pdf_url, job.nup_pdf_url);
     }
   };
 
@@ -128,7 +134,7 @@ function streamJob(jobId) {
 
 function setStatus(status) {
   const badge = document.getElementById('status-badge');
-  const labels = { pending: '대기 중', running: '처리 중', completed: '완료', failed: '실패' };
+  const labels = { pending: '대기 중', processing: '처리 중', running: '처리 중', completed: '완료', failed: '실패' };
   badge.textContent = labels[status] ?? status;
   badge.className = `status-badge badge-${status}`;
 }
@@ -150,7 +156,7 @@ function renderFailedFiles(files) {
   });
 }
 
-function showResult(jobId, pdfUrl) {
+function showResult(jobId, pdfUrl, nupPdfUrl) {
   resultSection.style.display = 'block';
   const btns = document.getElementById('download-btns');
   btns.innerHTML = '';
@@ -167,14 +173,41 @@ function showResult(jobId, pdfUrl) {
     pdfBtn.href = pdfUrl;
     pdfBtn.download = `영수증_${jobId}.pdf`;
     pdfBtn.className = 'btn-download btn-pdf';
-    pdfBtn.textContent = '영수증 PDF 다운로드';
+    pdfBtn.textContent = '영수증 PDF';
     btns.appendChild(pdfBtn);
+  }
+
+  if (nupPdfUrl) {
+    const nupBtn = document.createElement('a');
+    nupBtn.href = nupPdfUrl;
+    nupBtn.download = `영수증_모아찍기_${jobId}.pdf`;
+    nupBtn.className = 'btn-download btn-pdf';
+    nupBtn.textContent = '영수증 PDF (모아찍기)';
+    btns.appendChild(nupBtn);
   }
 }
 
 function showError(msg) {
   document.getElementById('progress-label').textContent = '오류: ' + msg;
   setStatus('failed');
+}
+
+function escTs(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+function escLog(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+function renderNewLogs(logs) {
+  if (logs.length <= lastLogCount) return;
+  const viewer = document.getElementById('log-viewer');
+  viewer.classList.add('visible');
+  for (let i = lastLogCount; i < logs.length; i++) {
+    const e = logs[i];
+    const div = document.createElement('div');
+    div.className = `log-entry log-${e.level}`;
+    div.innerHTML = `<span class="log-ts">${escTs(e.ts)}</span>${escLog(e.msg)}`;
+    viewer.appendChild(div);
+  }
+  lastLogCount = logs.length;
+  viewer.scrollTop = viewer.scrollHeight;
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

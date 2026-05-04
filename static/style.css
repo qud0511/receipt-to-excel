@@ -181,10 +181,30 @@ select:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
   font-weight: 600;
 }
 
-.badge-pending  { background: #fef3c7; color: #92400e; }
-.badge-running  { background: #dbeafe; color: #1e40af; }
-.badge-completed { background: #dcfce7; color: #166534; }
-.badge-failed   { background: #fee2e2; color: #991b1b; }
+.badge-pending     { background: #fef3c7; color: #92400e; }
+.badge-processing  { background: #dbeafe; color: #1e40af; }
+.badge-running     { background: #dbeafe; color: #1e40af; }
+.badge-completed   { background: #dcfce7; color: #166534; }
+.badge-failed      { background: #fee2e2; color: #991b1b; }
+
+.log-viewer {
+  margin-top: 12px;
+  background: #0f172a;
+  border-radius: 6px;
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow-y: auto;
+  font-family: 'Menlo', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  display: none;
+}
+.log-viewer.visible { display: block; }
+.log-entry { white-space: pre-wrap; word-break: break-all; }
+.log-info  { color: #86efac; }
+.log-warn  { color: #fde68a; }
+.log-error { color: #fca5a5; }
+.log-ts    { color: #64748b; margin-right: 6px; }
 
 .failed-list {
   margin-top: 12px;

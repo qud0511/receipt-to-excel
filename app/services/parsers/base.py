@@ -34,12 +34,24 @@ class ParseError(Exception):
         self.tier_attempted = tier_attempted
 
 
-class FieldNotFoundError(ParseError):
-    """필수 필드 (가맹점명/거래일/금액) 누락."""
+class ProviderNotDetectedError(ParseError):
+    """카드사 자체 식별 실패 — header/footer 어디서도 시그니처 매칭 안 됨."""
+
+
+class ParserNotImplementedError(ParseError):
+    """provider 는 식별됐으나 RuleBased 구현이 stub. router 가 OCR Hybrid 로 fallback."""
+
+
+class RequiredFieldMissingError(ParseError):
+    """추출 시도했으나 필수 필드 (가맹점명/거래일/금액) 결손."""
 
 
 class FormatMismatchError(ParseError):
-    """필드는 추출됐으나 형식이 도메인 검증 (AD-2 등) 미통과."""
+    """필드는 추출됐으나 형식이 도메인 검증 (AD-2 canonical 등) 미통과."""
+
+
+class LLMDisabledError(ParseError):
+    """모든 tier 실패 + ``LLM_ENABLED=false`` — UI 가 사용자에게 옵트인 안내."""
 
 
 class BaseParser(ABC):

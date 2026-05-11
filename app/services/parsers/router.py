@@ -5,9 +5,20 @@ CLAUDE.md §"특이사항: 추출 우선순위 — RuleBased > OCR Hybrid > LLM-
 
 from __future__ import annotations
 
-from app.domain.parsed_transaction import CardProvider
-from app.services.parsers.base import BaseParser, ParseError
+import structlog
+
+from app.domain.parsed_transaction import CardProvider, ParsedTransaction
+from app.services.parsers.base import (
+    BaseParser,
+    LLMDisabledError,
+    ParseError,
+    ParserNotImplementedError,
+    ProviderNotDetectedError,
+    RequiredFieldMissingError,
+)
 from app.services.parsers.pdf_text_probe import is_text_embedded
+
+_log = structlog.get_logger(__name__)
 
 # Provider 시그니처 — header/footer 의 URL 또는 한글 카드사명.
 # bytes 기준 매칭 — UTF-8 한글 raw bytes 도 포함.
@@ -81,4 +92,66 @@ class ParserRouter:
             f"rule={bool(self._rule_parsers)} ocr={bool(self._ocr_parser)} "
             f"llm_enabled={self._llm_enabled}",
             tier_attempted="llm" if self._llm_enabled else "ocr_hybrid",
+        )
+
+    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
+        """tier 폴백 체인 — rule_based → ocr_hybrid → llm.
+
+        - ``ParserNotImplementedError`` / ``RequiredFieldMissingError`` 는 다음 tier 로 fall-through
+        - 모두 실패 시: provider unknown + OCR 없음 → ``ProviderNotDetectedError``
+                     그 외 → ``LLMDisabledError``
+        """
+        provider = detect_provider(content)
+        text_embedded = is_text_embedded(content)
+
+        # 1) RuleBased — provider 알려짐 + 텍스트 임베디드.
+        if provider != "unknown" and text_embedded:
+            rule_parser = self._rule_parsers.get(provider)
+            if rule_parser is not None:
+                try:
+                    return await rule_parser.parse(content, filename=filename)
+                except ParserNotImplementedError:
+                    # 구조화 로그 — fallback 사유 분류.
+                    _log.info(
+                        "tier_skipped",
+                        tier_skipped="rule_based:stub",
+                        provider=provider,
+                        filename=filename,
+                    )
+                except RequiredFieldMissingError as e:
+                    _log.warning(
+                        "tier_failed",
+                        tier="rule_based",
+                        provider=provider,
+                        field=e.field,
+                        filename=filename,
+                    )
+
+        # 2) OCR Hybrid.
+        if self._ocr_parser is not None:
+            try:
+                return await self._ocr_parser.parse(content, filename=filename)
+            except ParseError as e:
+                _log.warning(
+                    "tier_failed",
+                    tier="ocr_hybrid",
+                    reason=e.reason,
+                    filename=filename,
+                )
+
+        # 3) LLM — 명시 활성화 시만.
+        if self._llm_enabled and self._llm_parser is not None:
+            return await self._llm_parser.parse(content, filename=filename)
+
+        # 모든 tier 소진 — 분류된 에러로 보고.
+        if provider == "unknown" and self._ocr_parser is None:
+            raise ProviderNotDetectedError(
+                f"no provider detected and OCR unavailable for {filename}",
+                reason=f"text_embedded={text_embedded}",
+                tier_attempted="rule_based",
+            )
+        raise LLMDisabledError(
+            f"all tiers exhausted, LLM disabled for {filename}",
+            reason=f"provider={provider} text_embedded={text_embedded}",
+            tier_attempted="ocr_hybrid",
         )

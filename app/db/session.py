@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 from fastapi import Request
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -35,7 +36,19 @@ def _ensure_sqlite_dir(database_url: str) -> None:
 
 def make_engine(database_url: str, *, echo: bool = False) -> AsyncEngine:
     _ensure_sqlite_dir(database_url)
-    return create_async_engine(database_url, echo=echo, future=True)
+    engine = create_async_engine(database_url, echo=echo, future=True)
+
+    # SQLite 는 PRAGMA foreign_keys=ON 명시 안 하면 FK constraint 무시. cascade/RESTRICT
+    # 동작이 silent 로 깨지는 v1 회귀를 차단.
+    if database_url.startswith("sqlite"):
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def _enable_fk(dbapi_conn: object, _conn_record: object) -> None:
+            cursor = dbapi_conn.cursor()  # type: ignore[attr-defined]
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+    return engine
 
 
 def make_session_maker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

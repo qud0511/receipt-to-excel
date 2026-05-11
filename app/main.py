@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from app.api.routes import auth, health
 from app.core.auth import AzureADVerifier
 from app.core.config import Settings
+from app.core.errors import register_error_handlers
 from app.core.logging import CorrelationIdMiddleware, configure_logging
 
 
@@ -26,6 +27,8 @@ def create_app() -> FastAPI:
 
     # 가장 바깥 미들웨어로 correlation_id — 모든 요청·예외 경로 cover.
     app.add_middleware(CorrelationIdMiddleware)
+
+    register_error_handlers(app)
 
     app.include_router(health.router)
     app.include_router(auth.router)

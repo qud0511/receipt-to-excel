@@ -8,7 +8,9 @@ license = { text = "Proprietary" }
 authors = [{ name = "bj" }]
 
 dependencies = [
-    "fastapi>=0.115,<0.120",
+    # fastapi 0.120+ 가 starlette 0.49.x 와 호환 (CVE-2025-62727 패치 포함).
+    "fastapi>=0.120,<0.130",
+    "starlette>=0.49.1,<0.50",
     "pydantic>=2.9,<3",
     "pydantic-settings>=2.5,<3",
     "python-jose[cryptography]>=3.3,<4",
@@ -19,8 +21,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest>=8,<9",
-    "pytest-asyncio>=0.24,<0.25",
+    # pytest 9.0.3+ 는 CVE-2025-71176 패치 포함. pytest-asyncio 1.x 호환.
+    "pytest>=9.0.3,<10",
+    "pytest-asyncio>=1.0,<2",
     "respx>=0.21,<0.22",
     "mypy>=1.13,<2",
     "ruff>=0.7,<0.10",

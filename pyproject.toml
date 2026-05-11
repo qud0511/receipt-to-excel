@@ -21,6 +21,16 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0,<3",
     "aiosqlite>=0.20,<1",
     "alembic>=1.14,<2",
+    # 룰 기반 파서 — Phase 4.
+    "pdfplumber>=0.11,<1",
+    # pdfplumber transitive 의 pillow — CVE-2026-42309/10/11 패치 (12.2 이상) 강제.
+    "pillow>=12.2,<13",
+]
+
+[project.optional-dependencies]
+# OCR/LLM — heavy weights (200MB+). CI 기본 제외. smoke 실행 시만 ``uv sync --extra ocr``.
+ocr = [
+    "easyocr>=1.7,<2",
 ]
 
 [dependency-groups]
@@ -32,6 +42,8 @@ dev = [
     "mypy>=1.13,<2",
     "ruff>=0.7,<0.10",
     "pip-audit>=2.7,<3",
+    # 합성 PDF 생성 (테스트 fixture) — Phase 4.
+    "reportlab>=4.2,<5",
 ]
 
 [tool.uv]

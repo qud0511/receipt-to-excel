@@ -24,7 +24,7 @@ _log = structlog.get_logger(__name__)
 
 
 class _DoclingLike(Protocol):
-    async def extract_text(self, content: bytes) -> str: ...
+    async def extract_text(self, content: bytes, *, filename: str = "input.pdf") -> str: ...
 
 
 class _OllamaLike(Protocol):
@@ -56,7 +56,7 @@ class OCRHybridParser(BaseParser):
         # session_id/idx 는 호출자(router/job runner) 가 contextvars 로 bind.
         _log.info("ocr_hybrid_parse_start", filename=filename)
 
-        ocr_text = await self._docling.extract_text(content)
+        ocr_text = await self._docling.extract_text(content, filename=filename)
 
         # Hallucination 방어 1단: prompt 디리미터.
         from app.services.parsers.ocr_hybrid.prompt import (

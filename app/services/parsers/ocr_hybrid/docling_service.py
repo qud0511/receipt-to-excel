@@ -41,13 +41,13 @@ class DoclingService:
     def config(self) -> PipelineConfig:
         return self._config
 
-    async def extract_text(self, content: bytes) -> str:
+    async def extract_text(self, content: bytes, *, filename: str = "input.pdf") -> str:
         # 블로킹 호출 — async 컨텍스트 차단 방지 (CLAUDE.md §"성능").
-        return await asyncio.to_thread(self._extract_sync, content)
+        return await asyncio.to_thread(self._extract_sync, content, filename)
 
-    def _extract_sync(self, content: bytes) -> str:
+    def _extract_sync(self, content: bytes, filename: str) -> str:
         # docling lazy import — [ocr] 미설치 시 ImportError 가 호출 시점에 raise.
-        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.base_models import DocumentStream, InputFormat
         from docling.datamodel.pipeline_options import PdfPipelineOptions
         from docling.document_converter import DocumentConverter, PdfFormatOption
 
@@ -62,5 +62,9 @@ class DoclingService:
         converter = DocumentConverter(
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
         )
-        result = converter.convert(io.BytesIO(content))
+        # DocumentConverter.convert() 는 Path/str/DocumentStream 만 받는다 (docling
+        # Pydantic strict). 회귀 — Phase 4.4 mock 이 가렸던 실제 버그.
+        # name 의 확장자로 docling 이 InputFormat 추론.
+        source = DocumentStream(name=filename, stream=io.BytesIO(content))
+        result = converter.convert(source)
         return str(result.document.export_to_markdown())

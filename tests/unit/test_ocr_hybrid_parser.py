@@ -43,7 +43,7 @@ _VALID_LLM_RESPONSE = {
 class _MockDocling:
     """Docling stub — 단위 테스트에서 실제 OCR 회피."""
 
-    async def extract_text(self, content: bytes) -> str:
+    async def extract_text(self, content: bytes, *, filename: str = "input.pdf") -> str:
         return "이용금액: 4,500원\n가맹점명: 스타벅스"
 
 

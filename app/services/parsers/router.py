@@ -1,0 +1,84 @@
+"""ParserRouter — provider 감지 + tier 라우팅.
+
+CLAUDE.md §"특이사항: 추출 우선순위 — RuleBased > OCR Hybrid > LLM-only".
+"""
+
+from __future__ import annotations
+
+from app.domain.parsed_transaction import CardProvider
+from app.services.parsers.base import BaseParser, ParseError
+from app.services.parsers.pdf_text_probe import is_text_embedded
+
+# Provider 시그니처 — header/footer 의 URL 또는 한글 카드사명.
+# bytes 기준 매칭 — UTF-8 한글 raw bytes 도 포함.
+_PROVIDER_SIGNATURES: dict[CardProvider, tuple[bytes, ...]] = {
+    "shinhan": (b"shinhancard.com", "신한카드".encode()),
+    "hana": (b"hanacard.co.kr", "하나카드".encode()),
+    "samsung": (b"samsungcard.com", "삼성카드".encode()),
+    "woori": (b"wooricard.com", "우리카드".encode()),
+    "lotte": (b"lottecard.co.kr", "롯데카드".encode()),
+}
+
+
+def detect_provider(content: bytes) -> CardProvider:
+    """raw bytes 안의 카드사 시그니처 검색. 미식별 → "unknown"."""
+    for provider, signatures in _PROVIDER_SIGNATURES.items():
+        for sig in signatures:
+            if sig in content:
+                return provider
+    return "unknown"
+
+
+class ParserRouter:
+    """tier 선택 — RuleBased (provider known + text embedded) > OCR Hybrid > LLM.
+
+    LLM 폴백은 ``llm_enabled=True`` 일 때만 (CLAUDE.md §"보안": LLM_ENABLED 명시 제어).
+    """
+
+    def __init__(
+        self,
+        *,
+        rule_based_parsers: dict[CardProvider, BaseParser] | None = None,
+        ocr_hybrid_parser: BaseParser | None = None,
+        llm_parser: BaseParser | None = None,
+        llm_enabled: bool = False,
+    ) -> None:
+        self._rule_parsers: dict[CardProvider, BaseParser] = rule_based_parsers or {}
+        self._ocr_parser = ocr_hybrid_parser
+        self._llm_parser = llm_parser
+        self._llm_enabled = llm_enabled
+
+    @staticmethod
+    def detect_provider(content: bytes) -> CardProvider:
+        return detect_provider(content)
+
+    @staticmethod
+    def is_text_embedded(content: bytes) -> bool:
+        return is_text_embedded(content)
+
+    def pick_parser(self, content: bytes) -> BaseParser:
+        """우선순위 tier 선택. 모두 적용 불가 → ParseError."""
+        provider = detect_provider(content)
+        text_embedded = is_text_embedded(content)
+
+        # 1) RuleBased — provider 알려짐 + 텍스트 임베디드.
+        if provider != "unknown" and text_embedded:
+            rule_parser = self._rule_parsers.get(provider)
+            if rule_parser is not None:
+                return rule_parser
+
+        # 2) OCR Hybrid — 스캔/이미지 또는 rule 미가용.
+        if self._ocr_parser is not None:
+            return self._ocr_parser
+
+        # 3) LLM — 명시적으로 활성화된 경우만.
+        if self._llm_enabled and self._llm_parser is not None:
+            return self._llm_parser
+
+        raise ParseError(
+            "all parser tiers exhausted",
+            reason=f"provider={provider} text_embedded={text_embedded} "
+            f"rule={bool(self._rule_parsers)} ocr={bool(self._ocr_parser)} "
+            f"llm_enabled={self._llm_enabled}",
+            tier_attempted="llm" if self._llm_enabled else "ocr_hybrid",
+        )

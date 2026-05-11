@@ -9,6 +9,7 @@ from app.core.auth import AzureADVerifier
 from app.core.config import Settings
 from app.core.errors import register_error_handlers
 from app.core.logging import CorrelationIdMiddleware, configure_logging
+from app.db.session import make_engine, make_session_maker
 
 
 def create_app() -> FastAPI:
@@ -24,6 +25,10 @@ def create_app() -> FastAPI:
     # Application-wide singletons. JWKS 캐시 재사용을 위해 verifier 는 1개 인스턴스만.
     app.state.settings = settings
     app.state.verifier = AzureADVerifier(settings)
+
+    engine = make_engine(settings.database_url)
+    app.state.db_engine = engine
+    app.state.db_sessionmaker = make_session_maker(engine)
 
     # 가장 바깥 미들웨어로 correlation_id — 모든 요청·예외 경로 cover.
     app.add_middleware(CorrelationIdMiddleware)

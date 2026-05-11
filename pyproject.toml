@@ -17,6 +17,10 @@ dependencies = [
     "httpx>=0.27,<0.29",
     "structlog>=24.4,<25",
     "uvicorn[standard]>=0.32,<0.40",
+    # DB — Phase 2.
+    "sqlalchemy[asyncio]>=2.0,<3",
+    "aiosqlite>=0.20,<1",
+    "alembic>=1.14,<2",
 ]
 
 [dependency-groups]
@@ -53,8 +57,13 @@ files = ["app"]
 
 [[tool.mypy.overrides]]
 # 외부 라이브러리 stub 미보유분만 한정 완화 (사유: 공식 stub 부재)
-module = ["jose.*", "structlog.*"]
+module = ["jose.*", "structlog.*", "alembic.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Alembic auto-generated 디렉토리 — alembic 자체가 직접 import 하며 strict 검증 부적합.
+module = ["app.db.migrations.*"]
+disable_error_code = ["assignment", "attr-defined", "misc"]
 
 # -----------------------------------------------------------------------------
 # ruff — CLAUDE.md §"가독성": E,F,W,I,N,B,UP,S,RUF,ASYNC
@@ -72,6 +81,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S311"]  # 테스트에서 더미 시크릿/assert 허용
+"app/db/migrations/**" = ["E501", "N999"]  # alembic auto-gen — 줄 길이 / 모듈명 무시
 
 [tool.ruff.format]
 quote-style = "double"

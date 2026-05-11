@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -23,10 +24,17 @@ _SETTINGS_ENV_KEYS = (
 
 
 @pytest.fixture(autouse=True)
-def _isolate_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Settings 환경 격리 — .env 자동 로드 차단 + 호스트 환경변수 무력화."""
+def _isolate_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> Iterator[None]:
+    """Settings 환경 격리 — .env 자동 로드 차단 + 호스트 환경변수 무력화 + DB tmp 격리."""
     for key in _SETTINGS_ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
+
+    # DB: 각 테스트마다 임시 SQLite 파일. storage/app.db 오염 / cross-test leak 차단.
+    db_file = tmp_path / "test.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_file}")
 
     from app.core.config import Settings
 

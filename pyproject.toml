@@ -31,6 +31,7 @@ dependencies = [
 # OCR/LLM — heavy weights (200MB+). CI 기본 제외. smoke 실행 시만 ``uv sync --extra ocr``.
 ocr = [
     "easyocr>=1.7,<2",
+    "docling>=2.0,<4",
 ]
 
 [dependency-groups]
@@ -69,7 +70,7 @@ files = ["app"]
 
 [[tool.mypy.overrides]]
 # 외부 라이브러리 stub 미보유분만 한정 완화 (사유: 공식 stub 부재)
-module = ["jose.*", "structlog.*", "alembic.*"]
+module = ["jose.*", "structlog.*", "alembic.*", "docling.*", "easyocr.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

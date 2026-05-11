@@ -28,6 +28,8 @@ _PROVIDER_SIGNATURES: dict[CardProvider, tuple[bytes, ...]] = {
     "samsung": (b"samsungcard.com", "삼성카드".encode()),
     "woori": (b"wooricard.com", "우리카드".encode()),
     "lotte": (b"lottecard.co.kr", "롯데카드".encode()),
+    "kbank": (b"kbank.com", "케이뱅크 카드 매출 전표".encode(), "케이뱅크".encode()),
+    "kakaobank": (b"kakaobank", "카드매출 온라인전표".encode()),
 }
 
 

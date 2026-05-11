@@ -73,3 +73,104 @@ def make_shinhan_receipt(
 
     c.save()
     return buf.getvalue()
+
+
+def make_samsung_receipt(
+    *,
+    merchant: str = "삼성가맹점",
+    transaction_dt: str = "2026/05/10 14:23:11",
+    amount_total: int = 11000,
+    usage_amount: int | None = 10000,
+    vat: int | None = 1000,
+    approval_no: str | None = "12345678",
+    card_number_masked: str = "1234-56**-****-7890",
+    address: str | None = None,
+) -> bytes:
+    """삼성카드 매출전표 합성 PDF — synthesis/05 §Phase 4 Samsung 사양 layout.
+
+    `address` 가 multiline 이면 줄바꿈 그대로 출력해 가맹점주소 multiline 케이스 검증.
+    """
+    _ensure_font()
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.setFont(_FONT_NAME, 11)
+
+    y = 800
+    c.drawString(50, y, "삼성카드 매출전표")
+    y -= 30
+    c.drawString(50, y, "samsungcard.com")
+    y -= 30
+    c.drawString(50, y, f"카드번호: {card_number_masked}")
+    y -= 20
+    c.drawString(50, y, f"거래일자: {transaction_dt}")
+    y -= 20
+    if approval_no is not None:
+        c.drawString(50, y, f"승인번호: {approval_no}")
+        y -= 20
+    c.drawString(50, y, f"이용금액 합계: {amount_total:,}원")
+    y -= 20
+    if usage_amount is not None:
+        c.drawString(50, y, f"이용금액: {usage_amount:,}원")
+        y -= 20
+    if vat is not None:
+        c.drawString(50, y, f"부가세: {vat:,}원")
+        y -= 20
+    c.drawString(50, y, f"가맹점명: {merchant}")
+    y -= 20
+    if address is not None:
+        c.drawString(50, y, "가맹점주소:")
+        y -= 20
+        for line in address.split("\n"):
+            c.drawString(50, y, line)
+            y -= 20
+
+    c.save()
+    return buf.getvalue()
+
+
+def make_kbank_receipt(
+    *,
+    merchant: str = "케이뱅크가맹점",
+    transaction_dt: str = "2026/05/10 14:23:11",
+    amount: int = 8900,
+    approval_no: str | None = "12345678",
+    card_number_masked: str = "1234-56**-****-7890",
+    business_category: str | None = None,
+    address: str | None = None,
+) -> bytes:
+    """케이뱅크 카드 매출 전표 합성 PDF — synthesis/05 §Phase 4 KBank 사양 layout.
+
+    "거래금액: 8,900 원" — 사양상 숫자와 "원" 사이에 공백 (회귀 방지 회피 어려운 케이스).
+    """
+    _ensure_font()
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.setFont(_FONT_NAME, 11)
+
+    y = 800
+    c.drawString(50, y, "케이뱅크 카드 매출 전표")
+    y -= 30
+    c.drawString(50, y, f"카드번호: {card_number_masked}")
+    y -= 20
+    c.drawString(50, y, f"거래일시: {transaction_dt}")
+    y -= 20
+    if approval_no is not None:
+        c.drawString(50, y, f"승인번호: {approval_no}")
+        y -= 20
+    # 숫자와 "원" 사이 공백 — KBank 양식 특성. parser 가 공백 허용 정규식 필수.
+    c.drawString(50, y, f"거래금액: {amount:,} 원")
+    y -= 20
+    c.drawString(50, y, f"가맹점명: {merchant}")
+    y -= 20
+    if business_category is not None:
+        c.drawString(50, y, f"업종: {business_category}")
+        y -= 20
+    if address is not None:
+        c.drawString(50, y, "주소:")
+        y -= 20
+        for line in address.split("\n"):
+            c.drawString(50, y, line)
+            y -= 20
+
+    c.save()
+    return buf.getvalue()

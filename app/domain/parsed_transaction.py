@@ -9,7 +9,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.confidence import ConfidenceLabel
 
-CardProvider = Literal["shinhan", "hana", "samsung", "woori", "lotte", "unknown"]
+CardProvider = Literal[
+    "shinhan",
+    "hana",
+    "samsung",
+    "woori",
+    "lotte",
+    "kbank",
+    "kakaobank",
+    "unknown",
+]
 ParserUsed = Literal["rule_based", "ocr_hybrid", "llm"]
 
 # AD-2 canonical: NNNN-****-****-NNNN (정확히 19자).

@@ -7,10 +7,13 @@ from fastapi import FastAPI
 from app.api.routes import auth, health
 from app.core.auth import AzureADVerifier
 from app.core.config import Settings
+from app.core.logging import CorrelationIdMiddleware, configure_logging
 
 
 def create_app() -> FastAPI:
     settings = Settings()
+    configure_logging(log_level=settings.log_level)
+
     app = FastAPI(
         title="Receipt-to-Excel v4",
         version="0.1.0",
@@ -20,6 +23,9 @@ def create_app() -> FastAPI:
     # Application-wide singletons. JWKS 캐시 재사용을 위해 verifier 는 1개 인스턴스만.
     app.state.settings = settings
     app.state.verifier = AzureADVerifier(settings)
+
+    # 가장 바깥 미들웨어로 correlation_id — 모든 요청·예외 경로 cover.
+    app.add_middleware(CorrelationIdMiddleware)
 
     app.include_router(health.router)
     app.include_router(auth.router)

@@ -1,0 +1,85 @@
+[project]
+name = "receipt-to-excel"
+version = "0.1.0"
+description = "Receipt-to-Excel v4 — 한국 카드/계좌 영수증 PDF → 회계 XLSX 자동 변환"
+requires-python = ">=3.12,<3.13"
+readme = "README.md"
+license = { text = "Proprietary" }
+authors = [{ name = "bj" }]
+
+dependencies = [
+    "fastapi>=0.115,<0.120",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.5,<3",
+    "python-jose[cryptography]>=3.3,<4",
+    "httpx>=0.27,<0.29",
+    "structlog>=24.4,<25",
+    "uvicorn[standard]>=0.32,<0.40",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<9",
+    "pytest-asyncio>=0.24,<0.25",
+    "respx>=0.21,<0.22",
+    "mypy>=1.13,<2",
+    "ruff>=0.7,<0.10",
+    "pip-audit>=2.7,<3",
+]
+
+[tool.uv]
+package = false
+
+# -----------------------------------------------------------------------------
+# mypy — CLAUDE.md §"가독성": Any 금지, 100% 타입
+# -----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+disallow_any_explicit = true
+disallow_any_generics = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+no_implicit_reexport = true
+show_error_codes = true
+pretty = true
+files = ["app"]
+
+[[tool.mypy.overrides]]
+# 외부 라이브러리 stub 미보유분만 한정 완화 (사유: 공식 stub 부재)
+module = ["jose.*", "structlog.*"]
+ignore_missing_imports = true
+
+# -----------------------------------------------------------------------------
+# ruff — CLAUDE.md §"가독성": E,F,W,I,N,B,UP,S,RUF,ASYNC
+# -----------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "B", "UP", "S", "RUF", "ASYNC"]
+ignore = [
+    "S101",  # assert 허용 (tests/ 한정 사용)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S311"]  # 테스트에서 더미 시크릿/assert 허용
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# -----------------------------------------------------------------------------
+# pytest — CLAUDE.md §"TDD": smoke 분리(real_pdf 마커)
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "real_pdf: smoke tests requiring real PDF/JPG fixtures (excluded by default CI)",
+]
+testpaths = ["tests"]
+addopts = ["-q", "--strict-markers"]
+filterwarnings = ["error::DeprecationWarning"]

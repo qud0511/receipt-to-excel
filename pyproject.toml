@@ -110,5 +110,5 @@ markers = [
     "real_pdf: smoke tests requiring real PDF/JPG fixtures (excluded by default CI)",
 ]
 testpaths = ["tests"]
-addopts = ["-q", "--strict-markers"]
+addopts = ["-q", "--strict-markers", "-m", "not real_pdf"]
 filterwarnings = ["error::DeprecationWarning"]

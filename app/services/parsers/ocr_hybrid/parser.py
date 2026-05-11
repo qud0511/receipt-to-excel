@@ -10,6 +10,7 @@ import json
 from typing import Protocol
 
 import structlog
+from PIL.Image import Image as PILImage
 from pydantic import ValidationError
 
 from app.domain.parsed_transaction import ParsedTransaction
@@ -32,7 +33,7 @@ class _OllamaLike(Protocol):
         *,
         system_prompt: str,
         user_prompt: str,
-        image: object | None = None,
+        image: PILImage | None = None,
     ) -> dict[str, object]: ...
 
 

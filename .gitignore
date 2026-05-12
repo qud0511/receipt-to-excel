@@ -18,6 +18,7 @@ __pycache__/
 # Storage / smoke fixtures (PII)
 storage/
 tests/smoke/real_pdfs/
+tests/smoke/real_templates/
 tests/smoke/results/
 
 # IDE

@@ -12,7 +12,6 @@ from __future__ import annotations
 import io
 from datetime import date
 
-import pytest
 from app.services.generators.xlsx_writer import (
     clear_data_rows,
     generate_output_filename,
@@ -211,17 +210,71 @@ def test_filename_follows_R12_pattern_YYYY_MM_지출결의서_xlsx() -> None:
     assert generate_output_filename(2025, 3) == "2025_03_지출결의서.xlsx"
 
 
-# ── 8/9/10) R13 동적 행 삽입 — Batch 2 (별도 commit) ─────────────────────────
-@pytest.mark.skip(reason="R13 — Phase 5.2b 별도 commit (style + merge + formula ref 보존)")
+# ── 8/9/10) R13 동적 행 삽입 — Phase 5.2b ────────────────────────────────────
+
+
 def test_dynamic_row_insertion_preserves_style() -> None:
-    pass
+    """data_start_row 의 셀 스타일 (font/fill/border) 이 새 행에 복제."""
+    from copy import copy
+
+    from app.services.generators.xlsx_writer import insert_row_at
+    from openpyxl import Workbook
+    from openpyxl.styles import Border, Font, PatternFill, Side
+
+    wb = Workbook()
+    ws = wb.active
+    # row 9 에 style 적용.
+    ws["A9"].font = Font(name="Arial", size=11, bold=True)
+    ws["A9"].fill = PatternFill(start_color="FFFF00", fill_type="solid")
+    ws["A9"].border = Border(left=Side(style="thin"))
+    # 시트 비교 안정성을 위해 row 10 도 존재해야 — sum_row 가능.
+    ws["A10"] = "기존 row 10 (sum_row)"
+
+    insert_row_at(ws, target_row=10, source_row=9)
+
+    # row 10 이 새로 삽입됨 → 기존 row 10 → row 11 로 shift.
+    assert ws["A11"].value == "기존 row 10 (sum_row)"
+    # row 10 의 스타일이 row 9 (source) 와 동일.
+    # openpyxl StyleProxy 비교 — `copy` 후 attribute 비교.
+    src_font = copy(ws["A9"].font)
+    dst_font = copy(ws["A10"].font)
+    assert dst_font.name == src_font.name
+    assert dst_font.size == src_font.size
+    assert dst_font.bold == src_font.bold
 
 
-@pytest.mark.skip(reason="R13 — Phase 5.2b 별도 commit")
 def test_dynamic_row_insertion_preserves_merged_cells() -> None:
-    pass
+    """삽입된 행이 기존 merged_cells 의 row offset 와 정합."""
+    from app.services.generators.xlsx_writer import insert_row_at
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    # B11:D11 merge (sum_row 의 가맹점 그룹 등 가정).
+    ws.merge_cells("B11:D11")
+    ws["A11"] = "합계"
+
+    insert_row_at(ws, target_row=10, source_row=9)
+
+    # 기존 row 11 → row 12 로 shift 됨 → merge 도 B12:D12 로 이동.
+    merged_ranges = {str(r) for r in ws.merged_cells.ranges}
+    assert "B12:D12" in merged_ranges
+    assert "B11:D11" not in merged_ranges
 
 
-@pytest.mark.skip(reason="R13 — Phase 5.2b 별도 commit")
 def test_dynamic_row_insertion_adjusts_formula_references() -> None:
-    pass
+    """행 삽입 후 sum_row 의 SUM(F9:F10) → SUM(F9:F11) 로 확장."""
+    xlsx = make_template(mode="hybrid", data_rows=2)
+    cfg = analyze_workbook(xlsx)["26.05_법인"]
+    wb, ws = _load_first_sheet(xlsx)
+
+    from app.services.generators.xlsx_writer import insert_row_at
+
+    # data_rows=2 → data_end_row=10, sum_row=11. row 10 직전에 1행 삽입.
+    insert_row_at(ws, target_row=10, source_row=9)
+
+    # sum_row 는 row 12 로 shift, SUM 범위는 F9:F11 (data_end_row + 1) 로 확장.
+    # Note: insert_row_at 은 layout 만 — regenerate_sum_formulas 가 새 sum_row 명시.
+    regenerate_sum_formulas(ws, cfg, new_data_end_row=11, sum_row=12)
+    # 새 sum_row 는 cfg.sum_row + 1 = 12.
+    assert ws["F12"].value == "=SUM(F9:F11)"

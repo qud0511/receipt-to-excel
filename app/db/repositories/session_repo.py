@@ -17,7 +17,7 @@ async def create(
     user_id: int,
     year_month: str,
     source_filenames: list[str],
-    status: Literal["parsing", "review", "generated", "failed"] = "parsing",
+    status: Literal["parsing", "awaiting_user", "generated", "failed"] = "parsing",
     template_id: int | None = None,
     batch_card_type: Literal["법인", "개인"] | None = None,
 ) -> UploadSession:

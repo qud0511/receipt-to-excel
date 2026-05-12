@@ -93,6 +93,18 @@ class Template(_TimestampMixin, Base):
     # TemplateConfig.sheets 직렬화 — Phase 5 에서 정확한 schema 정의.
     sheets_json: Mapped[dict[str, object]] = mapped_column(JSON)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Phase 6 (ADR-011): Template Analyzer 결과 — 모든 시트 analyzable=True 면 mapped,
+    # 한 시트라도 False 면 needs_mapping. UI Templates sidebar 의 "매핑 필요" flag 매핑.
+    mapping_status: Mapped[Literal["mapped", "needs_mapping"]] = mapped_column(
+        String(16), default="mapped", nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "mapping_status IN ('mapped', 'needs_mapping')",
+            name="ck_template_mapping_status",
+        ),
+    )
 
 
 # ── 4. Vendor ─────────────────────────────────────────────────────────────────
@@ -201,12 +213,29 @@ class UploadSession(_TimestampMixin, Base):
         ForeignKey("template.id", ondelete="SET NULL"), nullable=True
     )
     source_filenames: Mapped[list[str]] = mapped_column(JSON)
-    status: Mapped[Literal["parsing", "review", "generated", "failed"]] = mapped_column(String(16))
+    # Phase 6: 'review' → 'awaiting_user' rename (ADR-010 D-3 + 사용자 4-state 동의).
+    # parsing: OCR/LLM 진행, awaiting_user: 검수 대기 (구 review),
+    # generated: 검수 완료 + 파일 생성됨, failed: 잡 실패.
+    status: Mapped[Literal["parsing", "awaiting_user", "generated", "failed"]] = mapped_column(
+        String(16)
+    )
     error: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # Phase 6: 처리 시간 메트릭 (Dashboard "절약된 시간" + Result "처리 시간 N분 N초").
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    processing_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Phase 6: 사용자가 명시적으로 "제출" 표시한 시각. NULL = 작성중, NOT NULL = 제출완료.
+    # Dashboard "최근 작성한 지출결의서" status 라벨 결정 (UI 캡처: 작성중/제출완료).
+    submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('parsing', 'review', 'generated', 'failed')",
+            "status IN ('parsing', 'awaiting_user', 'generated', 'failed')",
             name="ck_upload_session_status",
         ),
         CheckConstraint(
@@ -253,6 +282,9 @@ class Transaction(Base):
 
     source_filename: Mapped[str] = mapped_column(String(255))
     source_file_path: Mapped[str] = mapped_column(String(512))
+    # Phase 6: 한글 원본 파일명 metadata (UploadGuard 가 source_filename 은 uuid 디스크명 저장,
+    # 원본명은 본 컬럼만 — CLAUDE.md 보안 + ADR-010 추천 7).
+    original_filename: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -299,4 +331,38 @@ class ExpenseRecord(_TimestampMixin, Base):
             "xlsx_sheet IN ('법인', '개인')",
             name="ck_expense_record_xlsx_sheet",
         ),
+    )
+
+
+# ── 12. GeneratedArtifact (Phase 6, ADR-010 D-4) ──────────────────────────────
+class GeneratedArtifact(Base):
+    """잡 완료 후 생성된 파일 (XLSX / PDF / ZIP) — Session 1:N artifacts.
+
+    ADR-010 추천 1 (다운로드 정책): layout PDF + XLSX + ZIP 묶음 = 3 row 영속.
+    raw merged PDF 는 layout 의 내부 단계로 흡수 — 별도 artifact 노출 안 함.
+    """
+
+    __tablename__ = "generated_artifact"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("upload_session.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
+    # xlsx: 지출결의서 / pdf: 증빙 영수증 합본 (모아찍기 layout) / zip: 위 2종 묶음.
+    artifact_type: Mapped[Literal["xlsx", "pdf", "zip"]] = mapped_column(String(8))
+    fs_path: Mapped[str] = mapped_column(String(512))
+    # 사용자가 보는 파일명 (R12 패턴 + user_name). 디스크 fs_path 와 분리.
+    display_filename: Mapped[str] = mapped_column(String(255))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "artifact_type IN ('xlsx', 'pdf', 'zip')",
+            name="ck_generated_artifact_type",
+        ),
+        Index("ix_generated_artifact_session", "session_id", "user_id"),
     )

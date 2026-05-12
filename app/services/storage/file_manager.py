@@ -26,7 +26,7 @@ class FileSystemManager:
         self._root = root
 
     @classmethod
-    def from_config(cls, *, storage_root: Path) -> "FileSystemManager":
+    def from_config(cls, *, storage_root: Path) -> FileSystemManager:
         """Settings 에서 받은 root 로 인스턴스. core.config 와의 단일 결합 점."""
         return cls(root=storage_root)
 

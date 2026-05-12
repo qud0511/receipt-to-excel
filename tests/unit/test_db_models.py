@@ -218,7 +218,7 @@ async def test_expense_record_attendees_json_round_trip(
         user_id=u.id,
         year_month="2026-05",
         source_filenames=["r.pdf"],
-        status="review",
+        status="awaiting_user",
     )
     session.add(upload)
     await session.flush()

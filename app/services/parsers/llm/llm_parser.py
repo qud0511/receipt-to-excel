@@ -90,6 +90,12 @@ class LLMOnlyParser(BaseParser):
         extracted["parser_used"] = "llm"
         extracted.setdefault("field_confidence", {})
 
+        # Hallucination 방어 3단: 카드번호 sanitize (OCR Hybrid 와 동일 로직 재사용).
+        from app.services.parsers.ocr_hybrid.sanitize import sanitize_card_masked
+
+        if "카드번호_마스킹" in extracted:
+            extracted["카드번호_마스킹"] = sanitize_card_masked(extracted.get("카드번호_마스킹"))
+
         try:
             return ParsedTransaction.model_validate(extracted)
         except ValidationError as e:

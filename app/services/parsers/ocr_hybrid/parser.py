@@ -95,7 +95,14 @@ class OCRHybridParser(BaseParser):
         extracted["parser_used"] = "ocr_hybrid"
         extracted.setdefault("field_confidence", {})
 
-        # Hallucination 방어 2단: Pydantic strict.
+        # Hallucination 방어 3단: 정규식 sanitize (Pydantic strict 전 단계).
+        # placeholder/partial canonical/garbage → AD-2 canonical 또는 None 정규화.
+        from app.services.parsers.ocr_hybrid.sanitize import sanitize_card_masked
+
+        if "카드번호_마스킹" in extracted:
+            extracted["카드번호_마스킹"] = sanitize_card_masked(extracted.get("카드번호_마스킹"))
+
+        # Hallucination 방어 4단: Pydantic strict.
         try:
             return ParsedTransaction.model_validate(extracted)
         except ValidationError as e:

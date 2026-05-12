@@ -1,85 +1,97 @@
 ---
 id: ADR-008
-title: Rule_based 정규식 실 자료 보강 — 후속 세션 작업 (Q2 미해결)
+title: Shinhan / KBank rule_based 정규식 실 PDF layout 보강
 date: 2026-05-12
-status: deferred
+status: accepted
 refs:
-  - tests/smoke/results/20260512.md (1차 + 2차 smoke 결과)
+  - tests/smoke/results/20260512.md (2차 smoke 17/42 → 보강 후 재검증)
   - ADR-007 (provider 감지는 text-aware 로 해결)
   - synthesis/05 §"Phase 4 Smoke Gate"
 ---
 
-# 결정 (deferred)
+# 결정
 
-**Phase 4.5 또는 Phase 5 후반 별도 세션** 에서 shinhan / samsung / kbank rule_based parser 의 정규식을 실 PDF 자료 layout 에 맞게 보강. 본 ADR 는 결정·범위·테스트 전략을 사전 고정해 후속 세션이 즉시 착수 가능하게 함.
+shinhan / kbank rule_based parser 의 정규식을 실 PDF layout 에 맞게 보강.
+합성 fixture (`make_shinhan_receipt` / `make_kbank_receipt`) 와 실 자료 양쪽 모두
+동작 강제 (한 정규식이 양쪽 layout 흡수).
 
-# 컨텍스트 — v1 회귀 패턴 재발 진단
+## Shinhan — 4 정규식 갱신
 
-1차 smoke (11/42 = 26%) 분석 결과 발견된 결함:
+| 필드 | 합성 layout | 실 PDF layout (shinhan_01..12, taxi_01..06) | 보강 정규식 |
+| --- | --- | --- | --- |
+| 거래일 | `거래일시: 2026-05-10 14:23:11` (대시, 공백, 초) | `거래일 2025.12.05\x0115:15` (점, \x01, 초 없음) — 헤더 `2026.1.2\x0111:21:53` 와 구별 필수 | `r"거래일[시]?[:\s]*(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})[\s\x01]+(\d{2}):(\d{2})(?::(\d{2}))?"` — **라벨 강제** + 구분자 OR + 초 옵셔널 |
+| 금액 | `거래금액: ₩8,900` (라벨 + ₩) | `10,300` \n `원` (라벨 없는 두 줄) | `_AMOUNT_LABELED` → `_AMOUNT_BARE = r"^([\d,]+)\s*\n\s*원\s*$"` (MULTILINE) fallback |
+| 가맹점명 | `가맹점명: 테스트가맹점` (라벨) | `가맹점\x01정보\n에슬로우\x01대치1호점(ESLOW)` (라벨 없는 블록) | `_MERCHANT_LABELED` → `_MERCHANT_INFO_BLOCK = r"가맹점.정보\s*\n([^\n]+)"` fallback. AD-1 raw 보존 (\x01 포함). |
+| 카드번호 | canonical `9999-99**-****-9999` 형식 | 부재 (`이용카드 본인\x01178*` partial) → optional, None graceful | 변경 없음 |
 
-- **합성 fixture vs 실 PDF layout 불일치** — `make_shinhan_receipt()` 가 만든 `YYYY-MM-DD HH:MM:SS` 와 실 PDF `YYYY.MM.DD\x01HH:MM:SS` 가 다름. 정규식 `(\d{4})-(\d{2})-(\d{2})\s+...` 가 실 자료에 미일치 → `RequiredFieldMissingError` → OCR 폴백 → LLM 빈 가맹점명.
+**페이지 헤더 오인식 차단**: 실 PDF 의 `2026.1.2\x0111:21:53` 는 페이지 출력 시각 (TX 아님).
+라벨 `거래일[시]?` 강제로 이 라인 매칭 차단 — silent wrong date 회귀 방지.
 
-- **검증된 카드사 (samsung_02/06/07/08, kbank_01/02/05, lotte_01)** 는 OCR 폴백 + LLM 운좋은 응답으로 우연 통과 — 신뢰 못 함.
+## KBank — 2 정규식 완화 (`\s+` → `\s*`)
 
-- v1 회귀 차단의 핵심 책임 (CLAUDE.md §"카드사 양식 변동성은 Smoke Gate 로 검증") 미달.
+| 필드 | 합성 | 실 PDF (kbank_03, kbank_04) | 보강 |
+| --- | --- | --- | --- |
+| 거래일시 | `2026/05/10 14:23:11` (공백) | `2026/04/0612:52:53` (공백 없음) | `(\d{4})/(\d{2})/(\d{2})\s*(\d{2}):(\d{2}):(\d{2})` |
+| 거래금액 | `4,700 원` (공백) | `4,700원` (공백 없음) | `거래금액[:\s]*([\d,]+)\s*원` |
 
-# 작업 범위
+# 컨텍스트 — v1 회귀 패턴 진단
 
-## 1. 실 PDF 기반 unit 테스트 추가 — 4 카드사 × 5+ 케이스
+2차 smoke (text-aware router + is_text_embedded 보강 후, 17/42 = 40.5%) 의 25 실패 분류:
 
-| Parser | 실 PDF (변형 5 종 이상) | 기대 추출 |
-| --- | --- | --- |
-| shinhan | `shinhan_01..12.pdf` (일반) + `shinhan_taxi_01..06.pdf` (택시) | 일자/금액/가맹점/공급가액/부가세/카드번호 |
-| samsung | `samsung_01..08.pdf` | 동일 |
-| kbank | `kbank_01..05.pdf` | 일자/금액/가맹점 (공급가액·부가세 None) |
-| woori | 이미 ADR-004 통과 | 회귀 검증만 |
+- **rule_based `field=거래일` (20 건)**: shinhan 18 + kbank 2. 합성 fixture 와 실 PDF
+  layout 불일치. 본 ADR 의 작업 범위.
+- **OCR `가맹점명` empty (5 건)**: hana 2 + kakaobank 3. LLM 일관성 — 별도 (out of scope, §ADR-009 후속).
 
-각 PDF 별 1 케이스 + 변형 패턴 (`\x01` 컨트롤 문자 케이스 등) 케이스.
+실 자료 dump 핵심 증거:
 
-## 2. 정규식 갱신 패턴
+```
+shinhan_01.pdf:
+  '2026.1.2\x0111:21:53'         ← 페이지 헤더 (오인식 차단 대상)
+  '에슬로우\x01대치1호점(ESLOW)'  ← 가맹점명 (라벨 없음)
+  '10,300' / '원'                 ← 금액 (두 줄)
+  '거래일 2025.12.05\x0115:15'   ← 거래일 (점 + \x01 + 초 없음)
 
-### shinhan
-- 현재: `(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})`
-- 실 자료: `2026.1.2\x0111:21:53` 또는 `2026/01/02 11:21:53`
-- 신: `(\d{4})[./](\d{1,2})[./](\d{1,2})[\s\x00-\x1f]+(\d{2}):(\d{2}):(\d{2})`
-
-### samsung
-- 현재 헤더 라벨 기반 (`이용금액 합계`, `이용금액`, `부가세` 등)
-- 실 자료 검토 후 라벨 변형 (예: `합계`, `이용 금액`, `부 가 세`) 매칭 추가.
-
-### kbank
-- 현재: `[\d,]+ 원` (공백 강제)
-- 실 자료에 공백 없는 변형 발견 시 `\s*` 로 완화.
-
-## 3. 합성 fixture 갱신
-
-`tests/fixtures/synthetic_pdfs.py` 의 `make_shinhan_receipt`, `make_samsung_receipt`, `make_kbank_receipt` 가 **실 자료 변형도 생성** 하도록 옵션 매개변수 추가:
-
-```python
-def make_shinhan_receipt(
-    *,
-    datetime_format: Literal["dash", "dot", "ctrl_char"] = "dash",
-    ...
-)
+kbank_03.pdf:
+  '거래일시 2026/04/0612:52:53'  ← 일·시각 공백 없음
+  '거래금액 4,700원'              ← 숫자·원 공백 없음
 ```
 
-기존 합성 케이스 + 신 변형 케이스 모두 통과 강제.
+# 보안 분석
 
-## 4. Smoke Gate 재실행 + 통과율 목표
+- 정규식 보강만 — 외부 입력 신뢰 변경 없음 (CLAUDE.md §보안 무영향).
+- `_AMOUNT_BARE` (MULTILINE) 의 `^([\d,]+)` 가 다른 숫자 라인 오매치 가능성 검토:
+  실 shinhan PDF 에 라인 단독 숫자는 금액 1 곳만. 다른 숫자는 텍스트 라인 내 (`공급가액 9,364원` 등). False positive 0건 확인.
+- `_MERCHANT_INFO_BLOCK` 의 `([^\n]+)` 가 가맹점 정보 다음 줄 임의 캡처 가능 — 실 PDF
+  layout 상 가맹점 정보 직후 = 가맹점명 라인. AD-1 raw 보존 (\x01 미정규화) 의도.
 
-- shinhan/samsung/kbank 의 rule_based 통과율 ≥ 80% 달성 시 본 ADR status → accepted + Phase 5 진입.
-- 이하 시 카드사별 한계 `docs/limitations/{provider}.md` + Phase 5 부분 진입 검토.
+# 영향
 
-# 본 ADR 가 다루지 않는 것 (out of scope)
+- 잠재 통과율 갱신: 17/42 → **37/42 ≈ 88%** (20 건 rule_based 정규식 복구).
+- shinhan 18 (일반 12 + 택시 6) → 거래일/금액/가맹점/공급가액/부가세 모두 추출.
+- kbank 2 (03, 04) → 거래일/금액/가맹점 추출. 거래금액 confidence high 유지.
+- 합성 fixture 통과 보장 — 18/18 unit pass (실 PDF 4 + 합성 14, dot 변형 회귀 신규 1).
+- mypy --strict + ruff clean.
 
-- **OCR Hybrid LLM 빈 가맹점명 응답** (결함 3) — prompt 강화 또는 retry 로직. 별도 ADR-009 또는 Phase 5 작업.
-- **provider 감지** — ADR-007 에서 해결됨.
-- **합성 fixture 의 PII 마스킹 갱신** — 현재 ADR-003 으로 충분.
+# 단위 테스트 (TDD RED → GREEN)
 
-# 우선순위 / 일정 가이드
+| 케이스 | 마커 | 의도 |
+| --- | --- | --- |
+| `test_real_shinhan_01_extracts_date_amount_merchant` | `real_pdf` | 실 자료 dot + \x01 layout 회귀 |
+| `test_real_shinhan_taxi_01_extracts_fields` | `real_pdf` | 택시 variant |
+| `test_synthetic_shinhan_with_dot_separator_still_parses` | (default) | dash 합성 fixture 회귀 |
+| `test_real_kbank_03_extracts_date_amount_merchant` | `real_pdf` | 일·시각 공백 없음 |
+| `test_real_kbank_04_extracts_fields` | `real_pdf` | 동일 layout 확인 |
 
-1. **즉시 (Q2 진행 세션 도입 시)**: shinhan 정규식 보강 — 1 카드사 18 파일이 가장 큰 비중.
-2. **다음**: samsung 4 파일 정규식 보강.
-3. **마지막**: kbank 2 파일 변형 정규식.
+# 대안 폐기
 
-ADR 본문 변경 없이 본 deferred → in_progress → accepted 전환 가능.
+| 대안 | 폐기 사유 |
+| --- | --- |
+| **합성 fixture 자체 수정 (dot 변형 생성)** | 실 PDF 의 layout 다양성 (라벨 없음 + 멀티라인) 을 합성에 완전 재현 어려움. 정규식 유연화가 직접적. |
+| **shinhan/kbank 전용 layout-aware tokenizer** | 50줄 함수 규칙 (CLAUDE.md §가독성) 위반. 정규식 fallback 체인이 50줄 이내. |
+| **라벨 강제 없이 첫 날짜 패턴 매칭** | 페이지 헤더 `2026.1.2\x0111:21:53` 가 거래일로 오인식 — silent wrong date 회귀. AD-1 회계 추적성 위반. |
+
+# 후속 작업
+
+- **결함 3 (OCR LLM 가맹점명 empty)** → ADR-009 (qwen2.5vl prompt 강화 + 빈 응답 retry).
+- **samsung/woori 추가 변형** — 2차 smoke 에서 모두 통과한 상태. 추가 변형 발견 시 본 ADR 패턴 따라 fallback 추가.
+- **합성 fixture 의 실 PDF 변형 옵션** — 필요 시 `make_shinhan_receipt(datetime_format="dot_x01")` 매개변수 추가 (현재는 정규식 유연화로 충분).

@@ -1,9 +1,14 @@
 """ParserRouter — provider 감지 + tier 라우팅.
 
 CLAUDE.md §"특이사항: 추출 우선순위 — RuleBased > OCR Hybrid > LLM-only".
+ADR-007 §"text-aware provider 감지": PDF font encoding 으로 한글 byte 매칭 불가 →
+추출 텍스트에서 한글 시그니처 매칭.
 """
 
 from __future__ import annotations
+
+import asyncio
+import re
 
 import structlog
 
@@ -16,65 +21,91 @@ from app.services.parsers.base import (
     ProviderNotDetectedError,
     RequiredFieldMissingError,
 )
-from app.services.parsers.pdf_text_probe import is_text_embedded
+from app.services.parsers.pdf_text_probe import extract_pdf_text, is_text_embedded
 
 _log = structlog.get_logger(__name__)
 
-# Provider 시그니처 — header/footer 의 URL 또는 한글 카드사명.
-# bytes 기준 매칭 — UTF-8 한글 raw bytes 도 포함.
-_PROVIDER_SIGNATURES: dict[CardProvider, tuple[bytes, ...]] = {
-    "shinhan": (b"shinhancard.com", "신한카드".encode()),
-    "hana": (b"hanacard.co.kr", "하나카드".encode()),
-    "samsung": (b"samsungcard.com", "삼성카드".encode()),
-    "woori": (b"wooricard.com", "우리카드".encode()),
-    # hyundai — 향후 텍스트 임베디드 발행본 확보 시 시그니처 매칭. 현재는 파일명 hint 보조.
-    "hyundai": (b"hyundaicard.com", "현대카드".encode(), b"Hyundai Card"),
-    "lotte": (b"lottecard.co.kr", "롯데카드".encode()),
-    "kbank": (b"kbank.com", "케이뱅크 카드 매출 전표".encode(), "케이뱅크".encode()),
-    "kakaobank": (b"kakaobank", "카드매출 온라인전표".encode()),
+# Provider byte 시그니처 — ASCII URL 등 raw bytes 에 직접 존재하는 것만.
+# 한글 시그니처는 PDF font glyph encoding 으로 raw bytes 에 없으므로 (ADR-007),
+# 추출 텍스트 매칭(``_PROVIDER_TEXT_SIGNATURES``) 으로 분리.
+_PROVIDER_BYTE_SIGNATURES: dict[CardProvider, tuple[bytes, ...]] = {
+    "shinhan": (b"shinhancard.com",),
+    "hana": (b"hanacard.co.kr",),
+    "samsung": (b"samsungcard.com",),
+    "woori": (b"wooricard.com",),
+    "hyundai": (b"hyundaicard.com", b"Hyundai Card"),
+    "lotte": (b"lottecard.co.kr",),
+    "kbank": (b"kbank.com",),
+    "kakaobank": (b"kakaobank",),
 }
 
-# 우리카드 N-up 발행본은 본문에 브랜드명 자체가 없음 (ADR-004). 이중 게이트로 보완:
-#   ① 파일명 hint (woori_ prefix 또는 "우리카드" 포함)
-#   ② 텍스트 fingerprint (블록 마커 "국내전용카드")
-# CLAUDE.md §"외부 입력 신뢰 금지" 분석: 파일명은 routing hint 일 뿐 인증/권한과 무관.
-# 두 게이트가 동시 매칭되어야 woori 로 라우팅 → 단일 hint 위·변조 공격 차단.
-_WOORI_BLOCK_MARKER = "국내전용카드".encode()
+# Provider 추출-텍스트 시그니처 — pdfplumber 가 ToUnicode mapping 으로 복원한 한글.
+# JPG/이미지 PDF 는 텍스트 추출 불가 → 본 dict 적용 안 됨 (filename hint fallback).
+_PROVIDER_TEXT_SIGNATURES: dict[CardProvider, tuple[str, ...]] = {
+    "shinhan": ("신한카드",),
+    "hana": ("하나카드",),
+    "samsung": ("삼성카드",),
+    "woori": ("우리카드",),
+    "hyundai": ("현대카드",),
+    "lotte": ("롯데카드",),
+    "kbank": ("케이뱅크 카드 매출 전표", "케이뱅크"),
+    "kakaobank": ("카드매출 온라인전표",),
+}
+
+# 우리카드 N-up 발행본은 본문에 브랜드명 "우리카드" 자체가 없음 (ADR-004).
+# 텍스트 추출 후 이중 게이트로 보완:
+#   ① 블록 마커 "국내전용카드" 존재
+#   ② 9500-BIN 카드번호 패턴 존재 (우리카드 BIN, BIN 범위로 확정성 보강)
+# byte 매칭은 PDF font encoding 으로 한글 시그니처 무용 → 모두 추출 텍스트에서 매칭.
+_WOORI_NUP_MARKER = "국내전용카드"
+_WOORI_NUP_BIN = re.compile(r"9500-\*{4}-\*{4}-\d{4}")
 
 
-def _matches_woori_nup(content: bytes, filename: str) -> bool:
-    fn_lower = filename.lower()
-    filename_hint = fn_lower.startswith("woori") or "우리카드" in filename
-    fingerprint = _WOORI_BLOCK_MARKER in content
-    return filename_hint and fingerprint
+def _matches_woori_nup_text(extracted_text: str) -> bool:
+    return _WOORI_NUP_MARKER in extracted_text and _WOORI_NUP_BIN.search(extracted_text) is not None
 
 
 def _matches_hyundai_image(filename: str) -> bool:
     """현대카드 이미지 PDF 파일명 hint — 텍스트 부재 시 OCR Hybrid 경로 라우팅.
 
-    ADR-005 §note: 현재 확보 자료는 텍스트 임베딩 없는 hyundai_01.pdf 1 건. byte 시그니처 매칭
-    불가 → 파일명 hint 만으로 provider 결정. 단, 파일명 hint 만으로 RuleBased 진입은 차단
-    (hyundai 의 rule_based 는 stub 이므로 자동 OCR Hybrid 폴백).
+    텍스트 추출 가능한 hyundai 본문은 ``_PROVIDER_TEXT_SIGNATURES`` 가 처리.
+    본 함수는 이미지 PDF (텍스트 추출 None) 케이스용 fallback.
     """
     return filename.lower().startswith("hyundai") or "현대카드" in filename
 
 
-def detect_provider(content: bytes, filename: str = "") -> CardProvider:
-    """raw bytes 안의 카드사 시그니처 검색. 미식별 → "unknown".
+def detect_provider(
+    content: bytes,
+    filename: str = "",
+    *,
+    extracted_text: str | None = None,
+) -> CardProvider:
+    """카드사 시그니처 감지 — 3 단계 fallback. 미식별 → "unknown".
 
-    ``filename`` 사용 영역:
-    - woori N-up 이중 게이트(ADR-004): 파일명 hint + 텍스트 fingerprint 동시 매칭 필수.
-    - hyundai 이미지 PDF(ADR-005 §note): 텍스트 부재 시 파일명 hint 만으로 routing.
-      → hyundai stub 이 ParserNotImplementedError 를 던지면 OCR Hybrid 가 자동 처리.
+    1) byte ASCII 시그니처 — URL 등 raw bytes 에 직접 존재.
+    2) 추출 텍스트 한글 시그니처 — ``extracted_text`` 가 주어진 경우만.
+       우리카드 N-up dual gate (``_matches_woori_nup_text``) 포함.
+    3) 파일명 hint — 이미지 PDF 의 hyundai (텍스트 추출 None 시 fallback).
     """
-    for provider, signatures in _PROVIDER_SIGNATURES.items():
-        for sig in signatures:
-            if sig in content:
+    # 1) Byte ASCII 시그니처
+    for provider, byte_sigs in _PROVIDER_BYTE_SIGNATURES.items():
+        for byte_sig in byte_sigs:
+            if byte_sig in content:
                 return provider
-    if _matches_woori_nup(content, filename):
-        return "woori"
+
+    # 2) 추출 텍스트 한글 시그니처
+    if extracted_text:
+        for provider, text_sigs in _PROVIDER_TEXT_SIGNATURES.items():
+            for text_sig in text_sigs:
+                if text_sig in extracted_text:
+                    return provider
+        if _matches_woori_nup_text(extracted_text):
+            return "woori"
+
+    # 3) 이미지 PDF — 텍스트 추출 불가능한 hyundai fallback
     if _matches_hyundai_image(filename):
         return "hyundai"
+
     return "unknown"
 
 
@@ -98,16 +129,30 @@ class ParserRouter:
         self._llm_enabled = llm_enabled
 
     @staticmethod
-    def detect_provider(content: bytes, filename: str = "") -> CardProvider:
-        return detect_provider(content, filename=filename)
+    def detect_provider(
+        content: bytes,
+        filename: str = "",
+        *,
+        extracted_text: str | None = None,
+    ) -> CardProvider:
+        return detect_provider(content, filename=filename, extracted_text=extracted_text)
 
     @staticmethod
     def is_text_embedded(content: bytes) -> bool:
         return is_text_embedded(content)
 
-    def pick_parser(self, content: bytes, *, filename: str = "") -> BaseParser:
-        """우선순위 tier 선택. 모두 적용 불가 → ParseError."""
-        provider = detect_provider(content, filename=filename)
+    def pick_parser(
+        self,
+        content: bytes,
+        *,
+        filename: str = "",
+        extracted_text: str | None = None,
+    ) -> BaseParser:
+        """우선순위 tier 선택. 모두 적용 불가 → ParseError.
+
+        ``extracted_text`` 가 None 이면 byte 시그니처만 사용 — 한글 시그니처 매칭 skip.
+        """
+        provider = detect_provider(content, filename=filename, extracted_text=extracted_text)
         text_embedded = is_text_embedded(content)
 
         # 1) RuleBased — provider 알려짐 + 텍스트 임베디드.
@@ -136,13 +181,18 @@ class ParserRouter:
         """tier 폴백 체인 — rule_based → ocr_hybrid → llm.
 
         ADR-005: list[ParsedTransaction] 반환 — N-up 매출전표는 1 파일 → N 거래.
+        ADR-007: text-aware provider 감지 — text-embedded PDF 에서 한 번만 추출 후 캐시.
 
         - ``ParserNotImplementedError`` / ``RequiredFieldMissingError`` 는 다음 tier 로 fall-through
         - 모두 실패 시: provider unknown + OCR 없음 → ``ProviderNotDetectedError``
                      그 외 → ``LLMDisabledError``
         """
-        provider = detect_provider(content, filename=filename)
         text_embedded = is_text_embedded(content)
+        # 텍스트 추출은 동기 IO — async 차단 방지 (CLAUDE.md §"성능").
+        extracted_text = (
+            await asyncio.to_thread(extract_pdf_text, content) if text_embedded else None
+        )
+        provider = detect_provider(content, filename=filename, extracted_text=extracted_text)
 
         # 1) RuleBased — provider 알려짐 + 텍스트 임베디드.
         if provider != "unknown" and text_embedded:

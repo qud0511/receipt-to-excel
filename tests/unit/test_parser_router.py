@@ -99,39 +99,79 @@ def test_router_raises_when_all_tiers_fail_and_llm_disabled() -> None:
         router.pick_parser(_UNKNOWN_TEXT_PDF)
 
 
-# ── 9a) Woori N-up 이중 게이트 — filename hint + "국내전용카드" fingerprint ──
-def test_router_detects_woori_when_filename_and_fingerprint_both_match() -> None:
-    content = b"%PDF-1.4\nBT\n" + "국내전용카드".encode() + b"\nET\n%%EOF"
-    assert detect_provider(content, filename="woori_nup_01.pdf") == "woori"
-    assert detect_provider(content, filename="우리카드_매출전표_1.pdf") == "woori"
+# ── 9a) Woori N-up 이중 게이트 — 추출 텍스트에 "국내전용카드" + 9500 BIN 둘 다 ──
+def test_router_detects_woori_when_text_has_marker_and_bin() -> None:
+    # ADR-007: byte 가 아닌 추출 텍스트에서 이중 게이트 평가.
+    content = b"%PDF-1.4\nBT\nbody\nET\n%%EOF"
+    text = "2026.05.0416:55:07\n국내전용카드\n9500-****-****-8751\n70,000원\n"
+    assert detect_provider(content, extracted_text=text) == "woori"
 
 
-# ── 9b) 파일명만 매칭 + fingerprint 부재 → unknown (이중 게이트 차단) ───────
-def test_router_does_not_detect_woori_when_only_filename_matches() -> None:
-    content = b"%PDF-1.4\nBT\nrandom invoice body\nET\n%%EOF"
-    # "국내전용카드" 마커 없음 → 파일명만으로는 통과 불가.
-    assert detect_provider(content, filename="woori_fake.pdf") == "unknown"
+# ── 9b) 마커만 + BIN 부재 → unknown (이중 게이트 strict) ──────────────────
+def test_router_does_not_detect_woori_when_only_marker_in_text() -> None:
+    content = b"%PDF-1.4\nBT\nbody\nET\n%%EOF"
+    text = "국내전용카드\nother content without bin\n"
+    assert detect_provider(content, extracted_text=text) == "unknown"
 
 
-# ── 9c) fingerprint 매칭 + 파일명 미일치 → unknown (이중 게이트 차단) ───────
-def test_router_does_not_detect_woori_when_only_fingerprint_matches() -> None:
-    content = b"%PDF-1.4\nBT\n" + "국내전용카드".encode() + b"\nET\n%%EOF"
-    # 파일명에 woori/우리카드 힌트 없음 → 통과 불가.
-    assert detect_provider(content, filename="random_receipt.pdf") == "unknown"
+# ── 9c) BIN만 + 마커 부재 → unknown (이중 게이트 strict) ──────────────────
+def test_router_does_not_detect_woori_when_only_bin_in_text() -> None:
+    content = b"%PDF-1.4\nBT\nbody\nET\n%%EOF"
+    text = "9500-****-****-8751\nother content without marker\n"
+    assert detect_provider(content, extracted_text=text) == "unknown"
 
 
-# ── 9d) hyundai 이미지 PDF — 파일명 hint 만으로 provider 결정 (OCR Hybrid 폴백 전제) ──
+# ── 9d) hyundai 이미지 PDF — 파일명 hint fallback (텍스트 추출 None) ────────
 def test_router_detects_hyundai_via_filename_hint_for_image_pdf() -> None:
-    # 텍스트 없는 이미지 PDF — byte 시그니처 매칭 불가, 파일명 hint 만 사용.
     content = b"%PDF-1.4\n%scanned image only, no text layer\n%%EOF"
+    # extracted_text=None (이미지 PDF) — 파일명 hint fallback 발동.
     assert detect_provider(content, filename="hyundai_01.pdf") == "hyundai"
     assert detect_provider(content, filename="현대카드_매출전표.pdf") == "hyundai"
 
 
-def test_router_detects_hyundai_via_byte_signature_when_present() -> None:
-    # 향후 텍스트 임베디드 hyundai 매출전표 — byte 시그니처 직접 매칭.
-    content = b"%PDF-1.4\nBT\n" + "현대카드".encode() + b"\nET\n%%EOF"
-    assert detect_provider(content, filename="anything.pdf") == "hyundai"
+# ── 9e) hyundai — 추출 텍스트의 "현대카드" 한글 시그니처 ─────────────────────
+def test_router_detects_hyundai_via_extracted_text_signature() -> None:
+    content = b"%PDF-1.4\nBT\nbody\nET\n%%EOF"
+    text = "현대카드 매출전표\n..."
+    assert detect_provider(content, extracted_text=text) == "hyundai"
+
+
+# ── 9f) ADR-007 신규 — 신한 한글 시그니처 추출 텍스트 매칭 ──────────────────
+def test_detects_shinhan_from_extracted_text() -> None:
+    content = b"%PDF-1.4\nBT\nbody\nET\n%%EOF"
+    text = "26. 1. 2. 오전 11:21 카드매출전표 < 신한카드\n2026.1.2\x0111:21:53\n"
+    assert detect_provider(content, extracted_text=text) == "shinhan"
+
+
+# ── 9g) ADR-007 신규 — 삼성 한글 시그니처 추출 텍스트 매칭 ──────────────────
+def test_detects_samsung_from_extracted_text() -> None:
+    content = b"%PDF-1.4\nBT\nbody\nET\n%%EOF"
+    text = "팝업 | 카드 이용내역 - 삼성카드\n카드매출전표\n"
+    assert detect_provider(content, extracted_text=text) == "samsung"
+
+
+# ── 9h) ADR-007 신규 — 케이뱅크 한글 시그니처 추출 텍스트 매칭 ──────────────
+def test_detects_kbank_from_extracted_text() -> None:
+    content = b"%PDF-1.4\nBT\nbody\nET\n%%EOF"
+    text = "케이뱅크 카드 매출 전표\n카드번호 1234-****-****-5678\n"
+    assert detect_provider(content, extracted_text=text) == "kbank"
+
+
+# ── 9i) ADR-007 신규 — 우리 단순 매출전표 (N-up 외) 추출 텍스트 매칭 ─────────
+def test_detects_woori_from_extracted_text_simple_signature() -> None:
+    # N-up 이 아닌 일반 우리카드 본문 (가상) — "우리카드" 텍스트로 매칭.
+    content = b"%PDF-1.4\nBT\nbody\nET\n%%EOF"
+    text = "우리카드 매출전표\n카드번호 1234-****-****-5678\n"
+    assert detect_provider(content, extracted_text=text) == "woori"
+
+
+# ── 9j) ADR-007 신규 — 추출 텍스트 + byte 모두 매칭 없음 → unknown ──────────
+def test_unknown_when_no_text_and_no_byte_match() -> None:
+    content = b"%PDF-1.4\nBT\nbody\nET\n%%EOF"
+    # extracted_text 미전달 + byte URL 부재 → unknown.
+    assert detect_provider(content) == "unknown"
+    # 추출 텍스트도 어떤 카드사 시그니처도 없음.
+    assert detect_provider(content, extracted_text="just plain body\nno provider\n") == "unknown"
 
 
 # ── 10) DoD — ParseError 가 field/reason/tier_attempted 필드 보유 ────────────

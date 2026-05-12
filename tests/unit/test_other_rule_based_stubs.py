@@ -1,4 +1,7 @@
-"""Phase 4.1 — hana/woori/lotte stubs + Router fallback 체인 + 구조화 로그."""
+"""Phase 4.1 — hana/lotte stubs + Router fallback 체인 + 구조화 로그.
+
+(우리카드는 Phase 4 보완 단계에서 완전 구현 — ADR-004. 본 파일에서는 stub 검증 제외.)
+"""
 
 from __future__ import annotations
 
@@ -16,11 +19,9 @@ from app.services.parsers.base import (
 from app.services.parsers.router import ParserRouter
 from app.services.parsers.rule_based.hana import HanaRuleBasedParser
 from app.services.parsers.rule_based.lotte import LotteRuleBasedParser
-from app.services.parsers.rule_based.woori import WooriRuleBasedParser
 
 # ── 모의 PDF bytes (provider signature 만 포함, 본문은 stub 동작 검증용) ──────
 _HANA_PDF = b"%PDF-1.4\nBT\nhanacard.co.kr footer\nET\n%%EOF"
-_WOORI_PDF = b"%PDF-1.4\nBT\nwooricard.com\nET\n%%EOF"
 _LOTTE_PDF = b"%PDF-1.4\nBT\nlottecard.co.kr\nET\n%%EOF"
 _UNKNOWN_PDF = b"%PDF-1.4\nBT\nplain invoice text no provider\nET\n%%EOF"
 
@@ -42,17 +43,11 @@ class _OcrStub(BaseParser):
         )
 
 
-# ── 1~3) 3 stubs 가 ParserNotImplementedError 를 던진다 ──────────────────────
+# ── 1~2) 2 stubs (hana / lotte) 가 ParserNotImplementedError 를 던진다 ──────
 async def test_hana_stub_raises_parser_not_implemented() -> None:
     parser = HanaRuleBasedParser()
     with pytest.raises(ParserNotImplementedError):
         await parser.parse(_HANA_PDF, filename="hana.pdf")
-
-
-async def test_woori_stub_raises_parser_not_implemented() -> None:
-    parser = WooriRuleBasedParser()
-    with pytest.raises(ParserNotImplementedError):
-        await parser.parse(_WOORI_PDF, filename="woori.pdf")
 
 
 async def test_lotte_stub_raises_parser_not_implemented() -> None:

@@ -32,13 +32,32 @@ _PROVIDER_SIGNATURES: dict[CardProvider, tuple[bytes, ...]] = {
     "kakaobank": (b"kakaobank", "카드매출 온라인전표".encode()),
 }
 
+# 우리카드 N-up 발행본은 본문에 브랜드명 자체가 없음 (ADR-004). 이중 게이트로 보완:
+#   ① 파일명 hint (woori_ prefix 또는 "우리카드" 포함)
+#   ② 텍스트 fingerprint (블록 마커 "국내전용카드")
+# CLAUDE.md §"외부 입력 신뢰 금지" 분석: 파일명은 routing hint 일 뿐 인증/권한과 무관.
+# 두 게이트가 동시 매칭되어야 woori 로 라우팅 → 단일 hint 위·변조 공격 차단.
+_WOORI_BLOCK_MARKER = "국내전용카드".encode()
 
-def detect_provider(content: bytes) -> CardProvider:
-    """raw bytes 안의 카드사 시그니처 검색. 미식별 → "unknown"."""
+
+def _matches_woori_nup(content: bytes, filename: str) -> bool:
+    fn_lower = filename.lower()
+    filename_hint = fn_lower.startswith("woori") or "우리카드" in filename
+    fingerprint = _WOORI_BLOCK_MARKER in content
+    return filename_hint and fingerprint
+
+
+def detect_provider(content: bytes, filename: str = "") -> CardProvider:
+    """raw bytes 안의 카드사 시그니처 검색. 미식별 → "unknown".
+
+    ``filename`` 은 woori N-up 이중 게이트(ADR-004)에만 사용. 다른 provider 는 무관.
+    """
     for provider, signatures in _PROVIDER_SIGNATURES.items():
         for sig in signatures:
             if sig in content:
                 return provider
+    if _matches_woori_nup(content, filename):
+        return "woori"
     return "unknown"
 
 
@@ -62,16 +81,16 @@ class ParserRouter:
         self._llm_enabled = llm_enabled
 
     @staticmethod
-    def detect_provider(content: bytes) -> CardProvider:
-        return detect_provider(content)
+    def detect_provider(content: bytes, filename: str = "") -> CardProvider:
+        return detect_provider(content, filename=filename)
 
     @staticmethod
     def is_text_embedded(content: bytes) -> bool:
         return is_text_embedded(content)
 
-    def pick_parser(self, content: bytes) -> BaseParser:
+    def pick_parser(self, content: bytes, *, filename: str = "") -> BaseParser:
         """우선순위 tier 선택. 모두 적용 불가 → ParseError."""
-        provider = detect_provider(content)
+        provider = detect_provider(content, filename=filename)
         text_embedded = is_text_embedded(content)
 
         # 1) RuleBased — provider 알려짐 + 텍스트 임베디드.
@@ -103,7 +122,7 @@ class ParserRouter:
         - 모두 실패 시: provider unknown + OCR 없음 → ``ProviderNotDetectedError``
                      그 외 → ``LLMDisabledError``
         """
-        provider = detect_provider(content)
+        provider = detect_provider(content, filename=filename)
         text_embedded = is_text_embedded(content)
 
         # 1) RuleBased — provider 알려짐 + 텍스트 임베디드.

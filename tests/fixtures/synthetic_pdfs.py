@@ -128,6 +128,86 @@ def make_samsung_receipt(
     return buf.getvalue()
 
 
+def make_woori_receipt(
+    *,
+    merchant: str = "가짜우리가맹점",
+    transaction_dt: str = "2026/05/1014:23:11",
+    amount: int = 8_900,
+    service_charge: int = 0,
+    vat: int = 809,
+    recycle_deposit: int = 0,
+    approval_no: str = "12345678",
+    card_number_masked: str = "9999-99**-****-9999",
+    address_lines: tuple[str, ...] = ("서울특별시강남구테헤란로 123",),
+    merchant_number: str = "123456789",
+    biz_number: str = "000-00-00000",
+    phone: str = "0212345678",
+    include_page_header: bool = True,
+) -> bytes:
+    """우리카드 매출전표 합성 PDF — 라벨 없는 위치 기반 N-up layout.
+
+    실 우리카드 발행 layout (ADR-004 분석) 재현 — 한 거래 1열 single-block 케이스.
+    Task 3 의 N-up 분할 테스트는 별도 fixture (``make_woori_nup_receipt``) 가 담당.
+
+    Layout (line-by-line, 라벨 없음):
+        2026.05.04 16:55:07         # page header timestamp (skip 대상)
+        국내전용카드                  # block 마커
+        9999-99**-****-9999          # card_number (canonical 형식)
+        2026/05/1014:23:11           # date+time 공백 없이 붙음 (우리카드 특이)
+        일시불                       # installment
+        {amount}원                   # 거래금액 (line 1)
+        {service_charge}원           # 봉사료    (line 2)
+        {vat}원                      # 부가세    (line 3)
+        {recycle_deposit}원          # 자원순환보증금 (line 4)
+        {approval_no}                # 승인번호 (8 자리)
+        {merchant}                   # 가맹점명
+        {address}                    # 가맹점주소 (1~2 lines, 광역시/도 시작)
+        {merchant_number}            # 가맹점번호 (9 자리)
+        {biz_number}                 # 사업자번호 (XXX-XX-XXXXX)
+        {phone}                      # 가맹점전화 (10 자리)
+    """
+    _ensure_font()
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.setFont(_FONT_NAME, 11)
+
+    y = 800
+    if include_page_header:
+        c.drawString(50, y, "2026.05.04 16:55:07")
+        y -= 30
+    c.drawString(50, y, "국내전용카드")
+    y -= 20
+    c.drawString(50, y, card_number_masked)
+    y -= 20
+    c.drawString(50, y, transaction_dt)
+    y -= 20
+    c.drawString(50, y, "일시불")
+    y -= 20
+    c.drawString(50, y, f"{amount:,}원")
+    y -= 20
+    c.drawString(50, y, f"{service_charge:,}원")
+    y -= 20
+    c.drawString(50, y, f"{vat:,}원")
+    y -= 20
+    c.drawString(50, y, f"{recycle_deposit:,}원")
+    y -= 20
+    c.drawString(50, y, approval_no)
+    y -= 20
+    c.drawString(50, y, merchant)
+    y -= 20
+    for line in address_lines:
+        c.drawString(50, y, line)
+        y -= 20
+    c.drawString(50, y, merchant_number)
+    y -= 20
+    c.drawString(50, y, biz_number)
+    y -= 20
+    c.drawString(50, y, phone)
+
+    c.save()
+    return buf.getvalue()
+
+
 def make_kbank_receipt(
     *,
     merchant: str = "케이뱅크가맹점",

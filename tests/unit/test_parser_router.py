@@ -97,6 +97,27 @@ def test_router_raises_when_all_tiers_fail_and_llm_disabled() -> None:
         router.pick_parser(_UNKNOWN_TEXT_PDF)
 
 
+# ── 9a) Woori N-up 이중 게이트 — filename hint + "국내전용카드" fingerprint ──
+def test_router_detects_woori_when_filename_and_fingerprint_both_match() -> None:
+    content = b"%PDF-1.4\nBT\n" + "국내전용카드".encode() + b"\nET\n%%EOF"
+    assert detect_provider(content, filename="woori_nup_01.pdf") == "woori"
+    assert detect_provider(content, filename="우리카드_매출전표_1.pdf") == "woori"
+
+
+# ── 9b) 파일명만 매칭 + fingerprint 부재 → unknown (이중 게이트 차단) ───────
+def test_router_does_not_detect_woori_when_only_filename_matches() -> None:
+    content = b"%PDF-1.4\nBT\nrandom invoice body\nET\n%%EOF"
+    # "국내전용카드" 마커 없음 → 파일명만으로는 통과 불가.
+    assert detect_provider(content, filename="woori_fake.pdf") == "unknown"
+
+
+# ── 9c) fingerprint 매칭 + 파일명 미일치 → unknown (이중 게이트 차단) ───────
+def test_router_does_not_detect_woori_when_only_fingerprint_matches() -> None:
+    content = b"%PDF-1.4\nBT\n" + "국내전용카드".encode() + b"\nET\n%%EOF"
+    # 파일명에 woori/우리카드 힌트 없음 → 통과 불가.
+    assert detect_provider(content, filename="random_receipt.pdf") == "unknown"
+
+
 # ── 10) DoD — ParseError 가 field/reason/tier_attempted 필드 보유 ────────────
 def test_parse_error_has_field_reason_tier_attempted() -> None:
     e = ParseError(

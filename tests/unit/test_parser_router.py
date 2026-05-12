@@ -120,6 +120,20 @@ def test_router_does_not_detect_woori_when_only_fingerprint_matches() -> None:
     assert detect_provider(content, filename="random_receipt.pdf") == "unknown"
 
 
+# ── 9d) hyundai 이미지 PDF — 파일명 hint 만으로 provider 결정 (OCR Hybrid 폴백 전제) ──
+def test_router_detects_hyundai_via_filename_hint_for_image_pdf() -> None:
+    # 텍스트 없는 이미지 PDF — byte 시그니처 매칭 불가, 파일명 hint 만 사용.
+    content = b"%PDF-1.4\n%scanned image only, no text layer\n%%EOF"
+    assert detect_provider(content, filename="hyundai_01.pdf") == "hyundai"
+    assert detect_provider(content, filename="현대카드_매출전표.pdf") == "hyundai"
+
+
+def test_router_detects_hyundai_via_byte_signature_when_present() -> None:
+    # 향후 텍스트 임베디드 hyundai 매출전표 — byte 시그니처 직접 매칭.
+    content = b"%PDF-1.4\nBT\n" + "현대카드".encode() + b"\nET\n%%EOF"
+    assert detect_provider(content, filename="anything.pdf") == "hyundai"
+
+
 # ── 10) DoD — ParseError 가 field/reason/tier_attempted 필드 보유 ────────────
 def test_parse_error_has_field_reason_tier_attempted() -> None:
     e = ParseError(

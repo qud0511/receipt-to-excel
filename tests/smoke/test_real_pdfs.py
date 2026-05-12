@@ -19,6 +19,7 @@ import structlog
 from app.services.parsers.base import BaseParser, ParseError
 from app.services.parsers.router import ParserRouter
 from app.services.parsers.rule_based.hana import HanaRuleBasedParser
+from app.services.parsers.rule_based.hyundai import HyundaiRuleBasedParser
 from app.services.parsers.rule_based.kbank import KBankRuleBasedParser
 from app.services.parsers.rule_based.lotte import LotteRuleBasedParser
 from app.services.parsers.rule_based.samsung import SamsungRuleBasedParser
@@ -57,6 +58,7 @@ def _build_router() -> ParserRouter:
         "samsung": SamsungRuleBasedParser(),
         "kbank": KBankRuleBasedParser(),
         "hana": HanaRuleBasedParser(),
+        "hyundai": HyundaiRuleBasedParser(),
         "woori": WooriRuleBasedParser(),
         "lotte": LotteRuleBasedParser(),
     }

@@ -18,10 +18,12 @@ from app.services.parsers.base import (
 )
 from app.services.parsers.router import ParserRouter
 from app.services.parsers.rule_based.hana import HanaRuleBasedParser
+from app.services.parsers.rule_based.hyundai import HyundaiRuleBasedParser
 from app.services.parsers.rule_based.lotte import LotteRuleBasedParser
 
 # ── 모의 PDF bytes (provider signature 만 포함, 본문은 stub 동작 검증용) ──────
 _HANA_PDF = b"%PDF-1.4\nBT\nhanacard.co.kr footer\nET\n%%EOF"
+_HYUNDAI_PDF = b"%PDF-1.4\nBT\n" + "현대카드".encode() + b"\nET\n%%EOF"
 _LOTTE_PDF = b"%PDF-1.4\nBT\nlottecard.co.kr\nET\n%%EOF"
 _UNKNOWN_PDF = b"%PDF-1.4\nBT\nplain invoice text no provider\nET\n%%EOF"
 
@@ -50,6 +52,12 @@ async def test_hana_stub_raises_parser_not_implemented() -> None:
     parser = HanaRuleBasedParser()
     with pytest.raises(ParserNotImplementedError):
         await parser.parse(_HANA_PDF, filename="hana.pdf")
+
+
+async def test_hyundai_stub_raises_parser_not_implemented() -> None:
+    parser = HyundaiRuleBasedParser()
+    with pytest.raises(ParserNotImplementedError):
+        await parser.parse(_HYUNDAI_PDF, filename="hyundai_01.pdf")
 
 
 async def test_lotte_stub_raises_parser_not_implemented() -> None:

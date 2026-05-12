@@ -27,6 +27,8 @@ _PROVIDER_SIGNATURES: dict[CardProvider, tuple[bytes, ...]] = {
     "hana": (b"hanacard.co.kr", "하나카드".encode()),
     "samsung": (b"samsungcard.com", "삼성카드".encode()),
     "woori": (b"wooricard.com", "우리카드".encode()),
+    # hyundai — 향후 텍스트 임베디드 발행본 확보 시 시그니처 매칭. 현재는 파일명 hint 보조.
+    "hyundai": (b"hyundaicard.com", "현대카드".encode(), b"Hyundai Card"),
     "lotte": (b"lottecard.co.kr", "롯데카드".encode()),
     "kbank": (b"kbank.com", "케이뱅크 카드 매출 전표".encode(), "케이뱅크".encode()),
     "kakaobank": (b"kakaobank", "카드매출 온라인전표".encode()),
@@ -47,10 +49,23 @@ def _matches_woori_nup(content: bytes, filename: str) -> bool:
     return filename_hint and fingerprint
 
 
+def _matches_hyundai_image(filename: str) -> bool:
+    """현대카드 이미지 PDF 파일명 hint — 텍스트 부재 시 OCR Hybrid 경로 라우팅.
+
+    ADR-005 §note: 현재 확보 자료는 텍스트 임베딩 없는 hyundai_01.pdf 1 건. byte 시그니처 매칭
+    불가 → 파일명 hint 만으로 provider 결정. 단, 파일명 hint 만으로 RuleBased 진입은 차단
+    (hyundai 의 rule_based 는 stub 이므로 자동 OCR Hybrid 폴백).
+    """
+    return filename.lower().startswith("hyundai") or "현대카드" in filename
+
+
 def detect_provider(content: bytes, filename: str = "") -> CardProvider:
     """raw bytes 안의 카드사 시그니처 검색. 미식별 → "unknown".
 
-    ``filename`` 은 woori N-up 이중 게이트(ADR-004)에만 사용. 다른 provider 는 무관.
+    ``filename`` 사용 영역:
+    - woori N-up 이중 게이트(ADR-004): 파일명 hint + 텍스트 fingerprint 동시 매칭 필수.
+    - hyundai 이미지 PDF(ADR-005 §note): 텍스트 부재 시 파일명 hint 만으로 routing.
+      → hyundai stub 이 ParserNotImplementedError 를 던지면 OCR Hybrid 가 자동 처리.
     """
     for provider, signatures in _PROVIDER_SIGNATURES.items():
         for sig in signatures:
@@ -58,6 +73,8 @@ def detect_provider(content: bytes, filename: str = "") -> CardProvider:
                 return provider
     if _matches_woori_nup(content, filename):
         return "woori"
+    if _matches_hyundai_image(filename):
+        return "hyundai"
     return "unknown"
 
 

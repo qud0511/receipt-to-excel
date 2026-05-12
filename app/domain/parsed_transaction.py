@@ -14,6 +14,7 @@ CardProvider = Literal[
     "hana",
     "samsung",
     "woori",
+    "hyundai",
     "lotte",
     "kbank",
     "kakaobank",

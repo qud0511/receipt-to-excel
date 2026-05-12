@@ -89,8 +89,23 @@ CLAUDE.md §"자율 진행 원칙": Phase 경계 (Phase 5 → Phase 6) 사용자
 
 ## Smoke Gate 회귀 (Phase 5 종료 시점)
 
-본 Phase 는 parser 무관 — Phase 4.5 의 88.1 % (37/42) 가 유지되어야 정상.
-실행 결과는 별도 commit 으로 본 섹션 갱신.
+본 Phase 는 parser 무관 — Phase 4.5 의 88.1 % (37/42) 안정 유지.
+
+### 4차 smoke (Phase 5 종료 회귀 검증, 2026-05-12)
+
+| 지표 | 값 |
+| --- | --- |
+| PASSED | **37 / 42 = 88.1 %** (Phase 4.5 와 동일) |
+| FAILED | 5 (hana 2 + kakaobank 3 — 모두 결함 3 동일) |
+| 거래 단위 | 44 transactions (woori_nup N-up 9 거래 포함) |
+| 회귀 발견 | **0** |
+
+### Phase 5 부수 — `uv sync --extra ocr` 의존성 회복
+
+본 Phase 도중 `openpyxl` / `pypdf` 추가 시 `uv sync` (extras 없이) 가 ``docling``/`easyocr` 제거.
+smoke 직전 `uv sync --extra ocr` 재실행으로 복구 (CLAUDE.md §"smoke 실행 시만").
+
+후속 권장: CI 의 smoke job 이 항상 `--extra ocr` 명시 (이미 README 명시됨).
 
 ---
 

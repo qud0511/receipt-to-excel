@@ -27,10 +27,12 @@ from app.services.parsers.base import (
 )
 
 _CARD = re.compile(r"(\d{4})-\d{2}\*\*-\*\*\*\*-(\d{4})")
-_DATE_TIME = re.compile(r"(\d{4})/(\d{2})/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})")
+# 실 PDF: '거래일시 2026/04/0612:52:53' — 일자와 시각 사이 공백 없음.
+# 합성 fixture: '거래일시: 2026/05/10 14:23:11' — 공백 있음. 양쪽 모두 \s* 로 흡수.
+_DATE_TIME = re.compile(r"(\d{4})/(\d{2})/(\d{2})\s*(\d{2}):(\d{2}):(\d{2})")
 _APPROVAL = re.compile(r"승인번호[:\s]*(\d{8})")
-# 사양: 숫자와 "원" 사이 공백 1개 이상 (\s+).
-_AMOUNT = re.compile(r"거래금액[:\s]*([\d,]+)\s+원")
+# 실 PDF: '거래금액 4,700원' — 숫자와 원 사이 공백 없음. 합성: '거래금액: 8,900 원' — 공백 있음.
+_AMOUNT = re.compile(r"거래금액[:\s]*([\d,]+)\s*원")
 _MERCHANT = re.compile(r"가맹점명[:\s]*(.+?)\s*$", re.MULTILINE)
 _CATEGORY = re.compile(r"업종[:\s]*(.+?)\s*$", re.MULTILINE)
 

@@ -26,14 +26,38 @@ from app.services.parsers.base import (
     RequiredFieldMissingError,
 )
 
-# 정규식 — 신한카드 매출전표 typical layout (라벨 + 콜론 + 값).
+# 정규식 — 신한카드 매출전표 (합성 fixture + 실 PDF 양쪽 layout, ADR-008).
+#
+# 합성 fixture (`make_shinhan_receipt`):
+#   - 거래일시: YYYY-MM-DD HH:MM:SS (대시, 공백, 초 포함, 라벨 "거래일시:")
+#   - 거래금액: ₩XXX,XXX  (라벨 + ₩)
+#   - 가맹점명: XXXX      (라벨)
+#
+# 실 PDF (shinhan_01..12, shinhan_taxi_01..06):
+#   - 거래일 YYYY.M.D\x01HH:MM (점, \x01, 초 없음, 라벨 "거래일")  ← 페이지 헤더와 구분 필수
+#   - 금액은 라벨 없이 별도 라인 (예: '10,300' \n '원')
+#   - 가맹점명은 '가맹점\x01정보' 블록 다음 줄 (라벨 없음, raw \x01 보존)
+
 _CARD_PATTERN = re.compile(r"(\d{4})-\d{2}\*\*-\*\*\*\*-(\d{4})")
-_DATE_TIME = re.compile(r"(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})")
-_AMOUNT = re.compile(r"거래금액[:\s]*₩?\s*([\d,]+)")
+
+# 거래일: 라벨 "거래일" 또는 "거래일시" 강제 → 페이지 출력 시각 (2026.1.2 형식) 오인식 차단.
+# 구분자: 대시/점/슬래시. 일-시각 사이: 공백 또는 \x01. 초 옵셔널 (실 PDF "HH:MM" 만 있음).
+_DATE_TIME = re.compile(
+    r"거래일[시]?[:\s]*(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})[\s\x01]+(\d{2}):(\d{2})(?::(\d{2}))?"
+)
+
+# 금액: 라벨 형식 (합성) 우선 → 라벨 없는 멀티라인 (실 PDF) fallback.
+_AMOUNT_LABELED = re.compile(r"거래금액[:\s]*₩?\s*([\d,]+)")
+_AMOUNT_BARE = re.compile(r"^([\d,]+)\s*\n\s*원\s*$", re.MULTILINE)
+
+# 가맹점: 라벨 형식 (합성) 우선 → "가맹점 정보" 블록 다음 줄 (실 PDF) fallback.
+# 실 PDF 의 \x01 는 가맹점명 raw 일부 — AD-1 immutable 로 보존.
+_MERCHANT_LABELED = re.compile(r"가맹점명[:\s]*(.+?)\s*$", re.MULTILINE)
+_MERCHANT_INFO_BLOCK = re.compile(r"가맹점.정보\s*\n([^\n]+)")
+
 _SUPPLY = re.compile(r"공급가액[:\s]*₩?\s*([\d,]+)")
 _VAT = re.compile(r"부가세[:\s]*₩?\s*([\d,]+)")
 _APPROVAL = re.compile(r"승인번호[:\s]*(\d{8})")
-_MERCHANT = re.compile(r"가맹점명[:\s]*(.+?)\s*$", re.MULTILINE)
 _CATEGORY = re.compile(r"업종[:\s]*(.+?)\s*$", re.MULTILINE)
 
 
@@ -58,7 +82,7 @@ class ShinhanRuleBasedParser(BaseParser):
     def _parse_from_text(self, text: str) -> ParsedTransaction:
         # 영문 로컬 변수 + 한글 도메인 API 분리 — ruff N806 호환.
 
-        # ── 필수: 거래일 ──
+        # ── 필수: 거래일 (라벨 강제 — 페이지 출력 시각 오인식 차단) ──
         dt_match = _DATE_TIME.search(text)
         if not dt_match:
             raise RequiredFieldMissingError(
@@ -66,12 +90,13 @@ class ShinhanRuleBasedParser(BaseParser):
                 field="거래일",
                 tier_attempted="rule_based",
             )
-        y, mo, d, hh, mm, ss = (int(g) for g in dt_match.groups())
-        tx_date = date(y, mo, d)
-        tx_time = time(hh, mm, ss)
+        y_s, mo_s, d_s, hh_s, mm_s, ss_s = dt_match.groups()
+        # 초는 실 PDF 에서 부재 가능 (라벨 "거래일 YYYY.M.D\x01HH:MM" — 초 없음).
+        tx_date = date(int(y_s), int(mo_s), int(d_s))
+        tx_time = time(int(hh_s), int(mm_s), int(ss_s) if ss_s else 0)
 
-        # ── 필수: 가맹점명 (AD-1 raw 보존) ──
-        m_match = _MERCHANT.search(text)
+        # ── 필수: 가맹점명 — 라벨 → "가맹점 정보" 블록 fallback (AD-1 raw 보존) ──
+        m_match = _MERCHANT_LABELED.search(text) or _MERCHANT_INFO_BLOCK.search(text)
         if not m_match:
             raise RequiredFieldMissingError(
                 "가맹점명 미발견",
@@ -80,8 +105,8 @@ class ShinhanRuleBasedParser(BaseParser):
             )
         merchant = m_match.group(1)
 
-        # ── 필수: 금액 ──
-        amt_match = _AMOUNT.search(text)
+        # ── 필수: 금액 — 라벨 → bare line 양식 (실 PDF) fallback ──
+        amt_match = _AMOUNT_LABELED.search(text) or _AMOUNT_BARE.search(text)
         if not amt_match:
             raise RequiredFieldMissingError(
                 "거래금액 미발견",

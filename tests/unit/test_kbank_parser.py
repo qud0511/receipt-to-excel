@@ -1,12 +1,18 @@
-"""Phase 4.3 — KBank rule parser 합성 PDF 6 케이스."""
+"""Phase 4.3 — KBank rule parser 합성 PDF 6 케이스 + Phase 4.5 실 PDF 보강."""
 
 from __future__ import annotations
 
 from datetime import date, time
+from pathlib import Path
 
+import pytest
 from app.services.parsers.rule_based.kbank import KBankRuleBasedParser
 
 from tests.fixtures.synthetic_pdfs import make_kbank_receipt
+
+_REAL_PDFS_DIR = Path(__file__).resolve().parents[1] / "smoke" / "real_pdfs"
+_KBANK_03 = _REAL_PDFS_DIR / "kbank_03.pdf"
+_KBANK_04 = _REAL_PDFS_DIR / "kbank_04.pdf"
 
 
 # ── 1) 정상 합성 PDF 전 필드 추출 ─────────────────────────────────────────────
@@ -74,3 +80,37 @@ async def test_card_number_already_canonical() -> None:
     parser = KBankRuleBasedParser()
     [result] = await parser.parse(pdf, filename="kbank.pdf")
     assert result.카드번호_마스킹 == "9876-****-****-3210"
+
+
+# ── 7) Phase 4.5: 실 PDF — 거래일시 일+시각 사이 공백 없음 (ADR-008) ──────────
+# 실 KBank PDF text dump:
+#   '거래일시 2026/04/0612:52:53'  ← 일 06 과 시각 12 사이 공백 없음
+#   '거래금액 4,700원'              ← 숫자와 원 사이 공백 없음
+
+
+@pytest.mark.real_pdf
+@pytest.mark.skipif(not _KBANK_03.exists(), reason="kbank_03.pdf 미존재 (gitignore)")
+async def test_real_kbank_03_extracts_date_amount_merchant() -> None:
+    """실 kbank_03.pdf: 거래일 2026/04/06 12:52:53, 금액 4,700, 가맹점 '할리스커피 여의도파'."""
+    content = _KBANK_03.read_bytes()
+    parser = KBankRuleBasedParser()
+    [result] = await parser.parse(content, filename="kbank_03.pdf")
+
+    assert result.거래일 == date(2026, 4, 6)
+    assert result.거래시각 == time(12, 52, 53)
+    assert result.금액 == 4_700
+    assert "할리스커피" in result.가맹점명
+    assert result.업종 == "서양음식"
+    assert result.카드사 == "kbank"
+    assert result.parser_used == "rule_based"
+
+
+@pytest.mark.real_pdf
+@pytest.mark.skipif(not _KBANK_04.exists(), reason="kbank_04.pdf 미존재 (gitignore)")
+async def test_real_kbank_04_extracts_fields() -> None:
+    content = _KBANK_04.read_bytes()
+    parser = KBankRuleBasedParser()
+    [result] = await parser.parse(content, filename="kbank_04.pdf")
+    assert result.거래일 == date(2026, 4, 8)
+    assert result.거래시각 == time(13, 15, 59)
+    assert result.금액 == 9_900

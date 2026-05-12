@@ -1,14 +1,19 @@
-"""Phase 4.2 — Shinhan rule parser 합성 PDF 7 케이스."""
+"""Phase 4.2 — Shinhan rule parser 합성 PDF 7 케이스 + Phase 4.5 실 PDF 보강."""
 
 from __future__ import annotations
 
 from datetime import date, time
+from pathlib import Path
 
 import pytest
 from app.services.parsers.base import RequiredFieldMissingError
 from app.services.parsers.rule_based.shinhan import ShinhanRuleBasedParser
 
 from tests.fixtures.synthetic_pdfs import make_shinhan_receipt
+
+_REAL_PDFS_DIR = Path(__file__).resolve().parents[1] / "smoke" / "real_pdfs"
+_SHINHAN_01 = _REAL_PDFS_DIR / "shinhan_01.pdf"
+_SHINHAN_TAXI_01 = _REAL_PDFS_DIR / "shinhan_taxi_01.pdf"
 
 
 # ── 1) 정상 합성 PDF 전 필드 추출 ─────────────────────────────────────────────
@@ -109,3 +114,57 @@ async def test_field_set_does_not_include_card_type_or_client_project() -> None:
     forbidden = {"card_type", "project_id", "xlsx_sheet", "expense_column"}
     leak = fields & forbidden
     assert not leak, f"ParsedTransaction leaked derived fields: {leak}"
+
+
+# ── 8) Phase 4.5: 실 PDF 거래일 layout — 점 구분자 + \x01 + 초 없음 (ADR-008) ──
+# 실 신한 PDF text dump:
+#   '2026.1.2\x0111:21:53'         ← 페이지 출력 시각 (TX 아님, 무시해야 함)
+#   '거래일 2025.12.05\x0115:15'   ← 진짜 거래일 (라벨, dot, \x01, 초 없음)
+#   '에슬로우\x01대치1호점(ESLOW)' ← 가맹점명 (라벨 없음, '가맹점 정보' block 에 반복)
+#   '10,300' / '원'                ← 금액 (라벨 없음, 두 줄 분리)
+
+
+@pytest.mark.real_pdf
+@pytest.mark.skipif(not _SHINHAN_01.exists(), reason="shinhan_01.pdf 미존재 (gitignore)")
+async def test_real_shinhan_01_extracts_date_amount_merchant() -> None:
+    """실 shinhan_01.pdf: 거래일 2025.12.05 15:15, 금액 10,300, 가맹점 에슬로우 대치1호점."""
+    content = _SHINHAN_01.read_bytes()
+    parser = ShinhanRuleBasedParser()
+    [result] = await parser.parse(content, filename="shinhan_01.pdf")
+
+    # 거래일 라벨 우선 — 페이지 헤더 '2026.1.2' 가 아닌 본문 '2025.12.05' 추출.
+    assert result.거래일 == date(2025, 12, 5)
+    assert result.거래시각 == time(15, 15)  # 초 없음 → 0
+    assert result.금액 == 10_300
+    # 가맹점명 raw 보존 — \x01 컨트롤 문자 포함 (AD-1 immutable).
+    assert "에슬로우" in result.가맹점명
+    assert result.카드사 == "shinhan"
+    assert result.parser_used == "rule_based"
+
+
+@pytest.mark.real_pdf
+@pytest.mark.skipif(
+    not _SHINHAN_TAXI_01.exists(), reason="shinhan_taxi_01.pdf 미존재 (gitignore)"
+)
+async def test_real_shinhan_taxi_01_extracts_fields() -> None:
+    """실 shinhan_taxi_01.pdf — 동일 layout, 업종=택시."""
+    content = _SHINHAN_TAXI_01.read_bytes()
+    parser = ShinhanRuleBasedParser()
+    [result] = await parser.parse(content, filename="shinhan_taxi_01.pdf")
+
+    assert result.거래일 == date(2025, 12, 16)
+    assert result.거래시각 == time(22, 34)
+    assert result.금액 == 18_700
+    assert "이동의즐거움" in result.가맹점명
+    assert result.업종 == "택시"
+
+
+# ── 9) Phase 4.5: 합성 fixture 거래일 dot 변형 회귀 방지 ─────────────────────
+async def test_synthetic_shinhan_with_dot_separator_still_parses() -> None:
+    """ADR-008 §"양쪽 동작 보장": 새 regex 가 대시 합성 fixture 와 dot 실 자료 양쪽 매칭."""
+    # 합성 fixture 의 기본 대시 + 공백 + 초 layout 회귀.
+    pdf = make_shinhan_receipt(transaction_dt="2026-05-10 14:23:11")
+    parser = ShinhanRuleBasedParser()
+    [result] = await parser.parse(pdf, filename="shinhan-dash.pdf")
+    assert result.거래일 == date(2026, 5, 10)
+    assert result.거래시각 == time(14, 23, 11)

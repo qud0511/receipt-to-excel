@@ -111,4 +111,11 @@ markers = [
 ]
 testpaths = ["tests"]
 addopts = ["-q", "--strict-markers", "-m", "not real_pdf"]
-filterwarnings = ["error::DeprecationWarning"]
+# 우리 코드의 DeprecationWarning 은 여전히 에러로 잡되, 외부 라이브러리 내부에서 자기
+# deprecated field 에 자기가 접근해 발생하는 경고는 upstream 업데이트로만 해소 가능 — ignore.
+filterwarnings = [
+    "error::DeprecationWarning",
+    "ignore::DeprecationWarning:docling",
+    "ignore::DeprecationWarning:docling.*",
+    "ignore::DeprecationWarning:pydantic._internal._model_construction",
+]

@@ -28,7 +28,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -112,20 +112,26 @@ async def create_session(
     await db.commit()
     session_id = upload_session.id
 
-    # 디스크 저장 — uuid 파일명 (보안).
+    # 디스크 저장 — uuid 파일명 (보안). original_filename → disk_filename 매핑 보관.
     upload_dir = file_manager.session_upload_dir(
         user_oid=user.oid, session_id=str(session_id), create=True,
     )
     receipts_payload: list[tuple[str, bytes]] = []
     card_payload: list[tuple[str, bytes]] = []
+    disk_map: dict[str, str] = {}
     for idx, info in enumerate(validated):
         content = all_items[idx][1]
         (upload_dir / info.disk_filename).write_bytes(content)
         original = info.original_filename
+        disk_map[original] = info.disk_filename
         if idx < len(receipts):
             receipts_payload.append((original, content))
         else:
             card_payload.append((original, content))
+    # _run_job_background 에서 retrieval. dict-of-dicts 로 session_id 별 격리.
+    if not hasattr(request.app.state, "_disk_filename_map"):
+        request.app.state._disk_filename_map = {}
+    request.app.state._disk_filename_map[session_id] = disk_map
 
     # JobRunner 등록 — BackgroundTasks (FastAPI 자체 worker).
     background_tasks.add_task(
@@ -161,11 +167,21 @@ async def _run_job_background(
             card_statements=card_statements,
         )
         # 잡 결과 → Transaction DB 영속 + Session.status='awaiting_user'.
+        # original_filename → disk_filename 매핑은 Sessions API 의 _disk_filename_map 보유.
+        disk_map = request.app.state._disk_filename_map.pop(session_id, {})
         sessionmaker = request.app.state.db_sessionmaker
         async with sessionmaker() as db:
             tx_rows = [
-                _parsed_to_db_row(parsed, session_id=session_id, user_id=user_id)
-                for parsed in result.transactions
+                _parsed_to_db_row(
+                    parsed,
+                    session_id=session_id,
+                    user_id=user_id,
+                    original_filename=source,
+                    disk_filename=disk_map.get(source, ""),
+                )
+                for parsed, source in zip(
+                    result.transactions, result.source_filenames, strict=True,
+                )
             ]
             if tx_rows:
                 await transaction_repo.bulk_create(
@@ -189,11 +205,17 @@ async def _run_job_background(
 
 
 def _parsed_to_db_row(
-    parsed: ParsedTransaction, *, session_id: int, user_id: int
+    parsed: ParsedTransaction,
+    *,
+    session_id: int,
+    user_id: int,
+    original_filename: str,
+    disk_filename: str,
 ) -> Transaction:
     """ParsedTransaction (도메인) → Transaction (ORM) 매핑.
 
     AD-1 raw 보존 — 가맹점명 그대로. AD-2 canonical 형식 (parser 가 보장).
+    source_filename = uuid 디스크명 (보안), original_filename = 한글 원본명 (UX).
     """
     return Transaction(
         session_id=session_id,
@@ -210,9 +232,9 @@ def _parsed_to_db_row(
         card_provider=parsed.카드사,
         parser_used=parsed.parser_used,
         field_confidence=dict(parsed.field_confidence),
-        source_filename="(uuid 디스크명)",  # Phase 6.7c 에서 실 매핑.
-        source_file_path="(per-user FS path)",  # Phase 6.7c.
-        original_filename=None,  # Phase 6.7c — UploadInfo 와 link.
+        source_filename=disk_filename,
+        source_file_path=disk_filename,  # session_upload_dir + disk_filename 으로 재구성 가능.
+        original_filename=original_filename,
     )
 
 
@@ -330,6 +352,93 @@ async def patch_transaction(
     }
     await db.commit()
     return response_payload
+
+
+@router.get("/{session_id}/preview-xlsx")
+async def preview_session_xlsx(
+    session_id: int,
+    user: Annotated[UserInfo, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(_get_db)],
+) -> dict[str, object]:
+    """Verify '엑셀 미리보기' 토글 — 본 Session 의 거래가 양식의 어느 셀에 들어갈지 JSON.
+
+    Phase 6.7b-4 단순 버전: 현 Transaction list + (matched) ExpenseRecord 의 row 값만
+    JSON 으로 반환. Template 매핑 적용은 Phase 6.7b-5 (generate) 와 동일 로직 공유.
+    """
+    db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
+    upload_session = await session_repo.get(
+        db, user_id=db_user.id, session_id=session_id,
+    )
+    txs = await transaction_repo.list_for_session(
+        db, user_id=db_user.id, session_id=session_id,
+    )
+
+    rows: list[dict[str, object]] = []
+    for tx in txs:
+        expense = await expense_record_repo.get_by_transaction(
+            db, user_id=db_user.id, transaction_id=tx.id,
+        )
+        rows.append(
+            {
+                "거래일": tx.transaction_date.isoformat(),
+                "가맹점": tx.merchant_name,
+                "금액": tx.amount,
+                "용도": expense.purpose if expense else None,
+                "인원": expense.headcount if expense else None,
+                "동석자": list(expense.attendees_json) if expense else [],
+                "비고": expense.auto_note if expense else "",
+            },
+        )
+
+    return {
+        "session_id": session_id,
+        "template_id": upload_session.template_id,
+        "year_month": upload_session.year_month,
+        "row_count": len(rows),
+        "rows": rows,
+    }
+
+
+@router.get("/{session_id}/transactions/{tx_id}/receipt")
+async def get_transaction_receipt(
+    session_id: int,
+    tx_id: int,
+    request: Request,
+    user: Annotated[UserInfo, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(_get_db)],
+) -> FileResponse:
+    """Verify 좌 panel — 원본 영수증 이미지/PDF 반환.
+
+    Transaction.source_filename (uuid disk name) 을 FileSystemManager 경로로 변환 →
+    FileResponse. per-user FS scope 강제 (IDOR + path traversal 차단).
+    """
+    db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
+    # IDOR.
+    await session_repo.get(db, user_id=db_user.id, session_id=session_id)
+    tx = await db.get(Transaction, tx_id)
+    if tx is None or tx.user_id != db_user.id or tx.session_id != session_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+    if not tx.source_filename:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="original receipt unavailable",
+        )
+
+    file_manager = request.app.state.file_manager
+    upload_dir = file_manager.session_upload_dir(
+        user_oid=user.oid, session_id=str(session_id),
+    )
+    target = upload_dir / tx.source_filename
+    # path traversal 차단 — 정규화 후 upload_dir 의 prefix 안에 있는지.
+    resolved = target.resolve(strict=False)
+    if not str(resolved).startswith(str(upload_dir.resolve(strict=False))):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="path escape")
+    if not resolved.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file missing")
+
+    return FileResponse(
+        path=resolved,
+        filename=tx.original_filename or tx.source_filename,
+    )
 
 
 @router.post("/{session_id}/transactions/bulk-tag")

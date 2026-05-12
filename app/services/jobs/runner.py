@@ -41,11 +41,16 @@ class JobRunnerError(RuntimeError):
 
 @dataclass
 class JobResult:
-    """잡 결과 — Sessions API 가 Transaction 영속 시 사용."""
+    """잡 결과 — Sessions API 가 Transaction 영속 시 사용.
+
+    ``source_filenames[i]`` 는 ``transactions[i]`` 의 원본 영수증 파일명 (한글).
+    N-up 영수증 1 파일 → N 거래 케이스도 동일 filename N 회 반복.
+    """
 
     transactions: list[ParsedTransaction] = field(default_factory=list)
     matches: list[TransactionMatch] = field(default_factory=list)
     matched_count: int = 0
+    source_filenames: list[str] = field(default_factory=list)
 
 
 class JobRunner:
@@ -79,8 +84,10 @@ class JobRunner:
                 msg=f"업로드 수신 — 영수증 {len(receipts)} / 카드내역 {len(card_statements)}",
             )
 
-            receipt_txs = await self._run_receipts(session_id, receipts, total=total)
-            card_txs = self._run_card_statements(
+            receipt_txs, receipt_sources = await self._run_receipts(
+                session_id, receipts, total=total,
+            )
+            card_txs, card_sources = self._run_card_statements(
                 session_id, card_statements, total=total, offset=len(receipts),
             )
 
@@ -91,13 +98,18 @@ class JobRunner:
                 1 for m in matches if m.receipt is not None and m.card_transaction is not None
             )
 
-            transactions = self._reconcile_transactions(matches)
+            transactions, source_filenames = self._reconcile_with_sources(
+                matches, receipt_txs, receipt_sources, card_txs, card_sources,
+            )
             self._publish(
                 session_id, stage="done", file_idx=total, total=total,
                 msg=f"파싱 완료 — {len(transactions)} 거래, 매칭 {matched_count}",
             )
             return JobResult(
-                transactions=transactions, matches=matches, matched_count=matched_count,
+                transactions=transactions,
+                matches=matches,
+                matched_count=matched_count,
+                source_filenames=source_filenames,
             )
         except Exception as exc:
             self._publish(
@@ -108,9 +120,13 @@ class JobRunner:
 
     async def _run_receipts(
         self, session_id: int, receipts: list[tuple[str, bytes]], *, total: int,
-    ) -> list[ParsedTransaction]:
-        """영수증 파일별 파서 호출. Ollama 동시성 Semaphore(2) 제한."""
+    ) -> tuple[list[ParsedTransaction], list[str]]:
+        """영수증 파일별 파서 호출. 결과의 source_filenames 도 함께 반환.
+
+        N-up 영수증 1 파일 → N 거래는 동일 filename 을 N 회 반복.
+        """
         results: list[ParsedTransaction] = []
+        sources: list[str] = []
         for idx, (filename, content) in enumerate(receipts):
             self._publish(
                 session_id, stage="rule_based", file_idx=idx, total=total, filename=filename,
@@ -119,7 +135,8 @@ class JobRunner:
             async with self._ollama_sem:
                 parsed = await self._receipt_parser(content, filename=filename)
             results.extend(parsed)
-        return results
+            sources.extend(filename for _ in parsed)
+        return results, sources
 
     def _run_card_statements(
         self,
@@ -128,11 +145,12 @@ class JobRunner:
         *,
         total: int,
         offset: int,
-    ) -> list[ParsedTransaction]:
-        """카드 사용내역 XLSX/CSV 파서 호출 — Phase 6.3 의 동기 진입점."""
+    ) -> tuple[list[ParsedTransaction], list[str]]:
+        """카드 사용내역 XLSX/CSV 파서 호출 + source_filenames."""
         if not self._card_statement_parser:
-            return []
+            return [], []
         results: list[ParsedTransaction] = []
+        sources: list[str] = []
         for idx, (filename, content) in enumerate(card_statements):
             self._publish(
                 session_id, stage="rule_based", file_idx=offset + idx, total=total,
@@ -141,23 +159,39 @@ class JobRunner:
             suffix = PurePosixPath(filename).suffix.lower()
             parsed = self._card_statement_parser(content, suffix=suffix)
             results.extend(parsed)
-        return results
+            sources.extend(filename for _ in parsed)
+        return results, sources
 
-    def _reconcile_transactions(
-        self, matches: list[TransactionMatch],
-    ) -> list[ParsedTransaction]:
-        """Match 결과 → 최종 ParsedTransaction list.
+    def _reconcile_with_sources(
+        self,
+        matches: list[TransactionMatch],
+        receipt_txs: list[ParsedTransaction],
+        receipt_sources: list[str],
+        card_txs: list[ParsedTransaction],
+        card_sources: list[str],
+    ) -> tuple[list[ParsedTransaction], list[str]]:
+        """Match 결과 → 최종 transactions + source_filenames 동일 길이.
 
-        매칭 성공 시 영수증 (parser 가 가맹점명 정확) 을 우선 채택.
-        매칭 실패 시 영수증 단독 또는 카드 단독 그대로 추가.
+        매칭 성공 시 영수증 우선 (parser 가 가맹점명 정확). source 도 영수증 filename.
+        영수증 단독 / 카드 단독 도 동일 패턴.
         """
-        out: list[ParsedTransaction] = []
+        receipt_id_to_source = {
+            id(tx): src for tx, src in zip(receipt_txs, receipt_sources, strict=True)
+        }
+        card_id_to_source = {
+            id(tx): src for tx, src in zip(card_txs, card_sources, strict=True)
+        }
+
+        out_tx: list[ParsedTransaction] = []
+        out_src: list[str] = []
         for m in matches:
             if m.receipt is not None:
-                out.append(m.receipt)
+                out_tx.append(m.receipt)
+                out_src.append(receipt_id_to_source.get(id(m.receipt), ""))
             elif m.card_transaction is not None:
-                out.append(m.card_transaction)
-        return out
+                out_tx.append(m.card_transaction)
+                out_src.append(card_id_to_source.get(id(m.card_transaction), ""))
+        return out_tx, out_src
 
     def _publish(
         self,

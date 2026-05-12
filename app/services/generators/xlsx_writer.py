@@ -142,10 +142,15 @@ def write_workbook(
     """
     wb = load_workbook(io.BytesIO(template_content))
 
-    # 시트 kind ("법인"/"개인") → sheet_name 매핑.
-    kind_to_sheet: dict[str, str] = {
-        cfg.sheet_name: name for name, cfg in template_sheets.items()
-    }
+    # 시트 kind ("법인"/"개인") → sheet_name (시트 title) 매핑.
+    # ADR-011 이후 SheetConfig.sheet_name 은 시트 title 그대로, sheet_kind 가 별도 enum.
+    # sheet_kind 이 None 인 Field mode 양식은 sheet_name (title) 으로도 매칭 가능.
+    kind_to_sheet: dict[str, str] = {}
+    for name, cfg in template_sheets.items():
+        if cfg.sheet_kind is not None:
+            kind_to_sheet[cfg.sheet_kind] = name
+        # 추가 fallback — sheet_name 자체로도 라우팅 가능 (Field mode 양식).
+        kind_to_sheet.setdefault(name, name)
 
     # 시트별 클리어 (rows 가 있든 없든 기존 더미 제거).
     for sheet_name, cfg in template_sheets.items():

@@ -46,11 +46,15 @@ def test_real_xlsx_round_trip_via_template_analyzer(path: Path) -> None:
     # 최소 2 시트 (법인 + 개인). 차량 시트는 analyzer 가 skip.
     assert len(sheets) >= 2, f"{path.name}: 법인/개인 시트 2개 이상 필요, got {list(sheets)}"
 
-    # 시트 kind 에 법인/개인 모두 포함.
-    kinds = {cfg.sheet_name for cfg in sheets.values()}
+    # 시트 kind 에 법인/개인 모두 포함 (ADR-011: cfg.sheet_kind 사용, sheet_name 은 title).
+    kinds = {cfg.sheet_kind for cfg in sheets.values() if cfg.analyzable}
     assert "법인" in kinds and "개인" in kinds, f"{path.name}: kinds={kinds}"
 
     for name, cfg in sheets.items():
+        if not cfg.analyzable:
+            # ADR-011 placeholder — 자동 분석 실패, 사용자 매핑 대기. layout 검증 skip.
+            continue
+
         # 기본 layout 일치.
         assert cfg.data_start_row == 9, f"{name}: data_start_row={cfg.data_start_row}"
         assert cfg.header_row == 7

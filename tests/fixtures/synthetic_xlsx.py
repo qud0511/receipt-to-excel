@@ -110,3 +110,78 @@ def make_empty_template() -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def make_field_mode_template(
+    *,
+    sheet_title: str = "지출결의서",
+    extra_sheets: tuple[str, ...] = ("증빙요약", "월별집계"),
+    data_rows: int = 2,
+    include_stop_sheet: bool = False,
+) -> bytes:
+    """UI A사 파견용 양식 (Field mode) 합성 — suffix '_법인'/'_개인' 부재.
+
+    ADR-011 신규 휴리스틱 검증용:
+    - sheet_title = "지출결의서" — suffix 없는 시트
+    - row 7 컬럼: A=연번 B=거래일 C=거래처명 D=프로젝트명 E=용도 F=인원 G=금액 H=동석자 I=비고
+    - A2 마커: "지출결의서" 또는 "경비 사용 내역서"
+
+    ``include_stop_sheet=True`` 면 "차량운행일지" 시트도 추가 — stop word 검증.
+    """
+    wb = Workbook()
+    default = wb.active
+    if default is not None:
+        wb.remove(default)
+
+    # 분석 대상 시트 — Field mode.
+    ws = wb.create_sheet(sheet_title)
+    ws["A2"] = "지출결의서"  # ADR-011 ANALYZABLE_A2_MARKERS 중 하나.
+
+    # row 7: Field mode 컬럼 헤더 (UI A사 양식 매핑).
+    ws["A7"] = "연번"
+    ws["B7"] = "거래일"
+    ws["C7"] = "거래처명"
+    ws["D7"] = "프로젝트명"
+    ws["E7"] = "용도"
+    ws["F7"] = "인원"
+    ws["G7"] = "금액"
+    ws["H7"] = "동석자"
+    ws["I7"] = "비고"
+
+    data_start = 9
+    data_end = data_start + data_rows - 1 if data_rows > 0 else data_start - 1
+    for r in range(data_start, data_start + data_rows):
+        ws.cell(row=r, column=1, value=r - data_start + 1)  # 연번 자동
+    sum_row = data_end + 1
+    ws.cell(row=sum_row, column=1, value="합계")
+    formula = f"=SUM(G{data_start}:G{data_end})"
+    ws.cell(row=sum_row, column=7, value=formula)
+
+    # 추가 시트 — 분석 대상 아님 (A2 마커 없음).
+    for extra in extra_sheets:
+        ews = wb.create_sheet(extra)
+        ews["A1"] = extra
+        # 분석 대상 아님 → SheetConfig.analyzable=False 또는 결과에서 제외.
+
+    if include_stop_sheet:
+        sws = wb.create_sheet("차량운행일지")
+        sws["A2"] = "지출결의서"  # 마커 있어도 stop word 로 skip.
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def make_unrecognized_marker_template() -> bytes:
+    """A2 마커는 있지만 row 7 헤더 keyword 0 → analyzable=False (needs_mapping)."""
+    wb = Workbook()
+    ws = wb.active
+    if ws is not None:
+        ws.title = "낯선양식"
+        ws["A2"] = "경비 사용 내역서"
+        # row 7 에 keyword 없음 — analyzer 휴리스틱 미일치.
+        ws["A7"] = "foo"
+        ws["B7"] = "bar"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

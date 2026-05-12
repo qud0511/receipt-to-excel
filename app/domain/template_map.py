@@ -17,7 +17,9 @@ class SheetConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    sheet_name: str  # "법인" / "개인"
+    sheet_name: str  # ADR-011: 시트 title 그대로 ("지출결의서" / "26.05_법인" 등).
+    # 기존 (ADR-006): "법인"/"개인" 만 — sheet_kind 컬럼으로 이전.
+    sheet_kind: Literal["법인", "개인"] | None = None  # suffix 추출, Field mode 양식은 None.
     date_col: str | None = None
     merchant_col: str | None = None
     project_col: str | None = None
@@ -31,6 +33,9 @@ class SheetConfig(BaseModel):
     sum_row: int | None = None
     header_row: int
     merged_cells_template: list[str] = Field(default_factory=list)
+    # Phase 6 (ADR-011): 자동 분석 성공 / 사용자 수동 매핑 대기 구분.
+    # False = A2 마커는 있으나 row 7 키워드 미일치 — UI 가 "매핑 필요" flag 노출.
+    analyzable: bool = True
 
     @field_serializer("formula_cols")
     def _serialize_formula_cols(self, value: set[str]) -> list[str]:

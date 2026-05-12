@@ -15,6 +15,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import (
@@ -33,10 +34,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.security import UploadGuard, UploadValidationError
-from app.db.models import Transaction
+from app.db.models import GeneratedArtifact, Template, Transaction
 from app.db.repositories import (
     expense_record_repo,
+    generated_artifact_repo,
     session_repo,
+    template_repo,
     transaction_repo,
     user_repo,
 )
@@ -49,6 +52,14 @@ from app.schemas.session import (
     TransactionPatchRequest,
     TransactionView,
 )
+from app.services.generators.layout_pdf import (
+    write_layout_pdf,
+)
+from app.services.generators.xlsx_writer import (
+    write_workbook,
+)
+from app.services.generators.zip_bundler import create_zip, generate_zip_filename
+from app.services.templates.analyzer import analyze_workbook
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -480,6 +491,221 @@ async def bulk_tag_transactions(
         ) from None
 
     return {"ok": True, "updated_count": updated_count}
+
+
+@router.post("/{session_id}/generate")
+async def generate_session_artifacts(
+    session_id: int,
+    request: Request,
+    user: Annotated[UserInfo, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(_get_db)],
+) -> dict[str, object]:
+    """Result 화면 진입 — Phase 5 generators 호출 + GeneratedArtifact 3 row 영속.
+
+    산출: XLSX (지출결의서) + PDF (영수증 모아찍기 layout) + ZIP (두 파일 묶음).
+    파일명 (R12 + user_name):
+    - ``{YYYY}_{MM}_지출결의서_{user_name}.xlsx``
+    - ``증빙_영수증_합본_{YYYY}_{MM}.pdf``
+    - ``{YYYY}_{MM}_지출결의서_{user_name}.zip``
+    """
+    db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
+    upload_session = await session_repo.get(
+        db, user_id=db_user.id, session_id=session_id,
+    )
+    if upload_session.template_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="template_id 미선택 — generate 불가",
+        )
+    template = await template_repo.get(
+        db, user_id=db_user.id, template_id=upload_session.template_id,
+    )
+
+    txs = await transaction_repo.list_for_session(
+        db, user_id=db_user.id, session_id=session_id,
+    )
+    rows: list[dict[str, object]] = []
+    for tx in txs:
+        expense = await expense_record_repo.get_by_transaction(
+            db, user_id=db_user.id, transaction_id=tx.id,
+        )
+        rows.append(
+            {
+                "transaction_date": tx.transaction_date,
+                "merchant": tx.merchant_name,
+                "amount": tx.amount,
+                "expense_column": expense.expense_column if expense else "기타비용",
+                "xlsx_sheet": expense.xlsx_sheet if expense else (tx.card_type or "개인"),
+            },
+        )
+
+    # year/month 파싱.
+    year_str, month_str = upload_session.year_month.split("-")
+    year = int(year_str)
+    month = int(month_str)
+    user_name = db_user.name or ""
+
+    # Phase 5 Template Analyzer + XlsxWriter.
+    template_path = await _resolve_template_path(template, request)
+    template_bytes = template_path.read_bytes() if template_path.exists() else b""
+    if not template_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="template 파일 부재",
+        )
+    sheet_configs = analyze_workbook(template_bytes)
+    xlsx_bytes, xlsx_filename_default = write_workbook(
+        template_bytes, sheet_configs, rows, year=year, month=month,
+    )
+    # 사용자명 보강: R12 + user_name.
+    xlsx_filename = (
+        f"{year:04d}_{month:02d}_지출결의서_{user_name}.xlsx"
+        if user_name
+        else xlsx_filename_default
+    )
+
+    # Phase 5 layout PDF — Verify 원본 영수증 모음. 실 자료 없으면 빈 PDF.
+    upload_dir = request.app.state.file_manager.session_upload_dir(
+        user_oid=user.oid, session_id=str(session_id),
+    )
+    image_paths = sorted(p for p in upload_dir.iterdir() if p.is_file())
+    img_ext = (".png", ".jpg", ".jpeg")
+    images: list[bytes] = [
+        p.read_bytes() for p in image_paths if p.suffix.lower() in img_ext
+    ]
+    pdf_bytes = write_layout_pdf(images, per_page=3) if images else b""
+    pdf_filename = f"증빙_영수증_합본_{year:04d}_{month:02d}.pdf"
+
+    # ZIP 묶음.
+    zip_files: list[tuple[str, bytes]] = [(xlsx_filename, xlsx_bytes)]
+    if pdf_bytes:
+        zip_files.append((pdf_filename, pdf_bytes))
+    zip_bytes = create_zip(zip_files)
+    zip_filename = generate_zip_filename(year, month, user_name)
+
+    # FS 영속.
+    output_dir = request.app.state.file_manager.session_output_dir(
+        user_oid=user.oid, session_id=str(session_id), create=True,
+    )
+    (output_dir / xlsx_filename).write_bytes(xlsx_bytes)
+    if pdf_bytes:
+        (output_dir / pdf_filename).write_bytes(pdf_bytes)
+    (output_dir / zip_filename).write_bytes(zip_bytes)
+
+    # DB 영속 (replace — 멱등).
+    artifacts = [
+        GeneratedArtifact(
+            session_id=session_id,
+            user_id=db_user.id,
+            artifact_type="xlsx",
+            fs_path=str(output_dir / xlsx_filename),
+            display_filename=xlsx_filename,
+            size_bytes=len(xlsx_bytes),
+        ),
+    ]
+    if pdf_bytes:
+        artifacts.append(
+            GeneratedArtifact(
+                session_id=session_id,
+                user_id=db_user.id,
+                artifact_type="pdf",
+                fs_path=str(output_dir / pdf_filename),
+                display_filename=pdf_filename,
+                size_bytes=len(pdf_bytes),
+            ),
+        )
+    artifacts.append(
+        GeneratedArtifact(
+            session_id=session_id,
+            user_id=db_user.id,
+            artifact_type="zip",
+            fs_path=str(output_dir / zip_filename),
+            display_filename=zip_filename,
+            size_bytes=len(zip_bytes),
+        ),
+    )
+    await generated_artifact_repo.replace_for_session(
+        db, user_id=db_user.id, session_id=session_id, artifacts=artifacts,
+    )
+    payload: list[dict[str, object]] = [
+        {"kind": a.artifact_type, "filename": a.display_filename, "size": a.size_bytes}
+        for a in artifacts
+    ]
+    await db.commit()
+    return {"session_id": session_id, "artifacts": payload}
+
+
+async def _resolve_template_path(template: Template, request: Request) -> Path:
+    """Template.file_path → 디스크 Path."""
+    from pathlib import Path as _Path
+
+    p = _Path(template.file_path)
+    if p.is_absolute():
+        return p
+    # 상대 경로 — storage_root 기준.
+    settings = request.app.state.settings
+    return _Path(settings.storage_root) / template.file_path
+
+
+@router.get("/{session_id}/download/{kind}")
+async def download_session_artifact(
+    session_id: int,
+    kind: str,
+    user: Annotated[UserInfo, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(_get_db)],
+) -> FileResponse:
+    """Result 다운로드 — xlsx / pdf / zip. RFC 5987 한글 파일명 + IDOR."""
+    if kind not in ("xlsx", "pdf", "zip"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="kind ∈ xlsx / pdf / zip",
+        )
+    db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
+    await session_repo.get(db, user_id=db_user.id, session_id=session_id)
+    artifact = await generated_artifact_repo.get_by_kind(
+        db, user_id=db_user.id, session_id=session_id, artifact_type=kind,
+    )
+    from pathlib import Path as _Path
+
+    p = _Path(artifact.fs_path)
+    if not p.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file missing")
+    return FileResponse(path=p, filename=artifact.display_filename)
+
+
+@router.get("/{session_id}/stats")
+async def get_session_stats(
+    session_id: int,
+    user: Annotated[UserInfo, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(_get_db)],
+) -> dict[str, object]:
+    """Result '처리 시간 N분 N초 · 평소 대비 N시간 단축'.
+
+    ADR-010 자료 검증 추천 5: Phase 6 은 baseline 15분/거래 하드코드.
+    """
+    db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
+    upload_session = await session_repo.get(
+        db, user_id=db_user.id, session_id=session_id,
+    )
+    txs = await transaction_repo.list_for_session(
+        db, user_id=db_user.id, session_id=session_id,
+    )
+    tx_count = len(txs)
+    baseline_s = tx_count * 15 * 60  # 15분/거래 (사용자 동의 추천 5).
+    if upload_session.processing_started_at and upload_session.processing_completed_at:
+        processing_s = (
+            upload_session.processing_completed_at
+            - upload_session.processing_started_at
+        ).total_seconds()
+    else:
+        processing_s = 0
+    return {
+        "session_id": session_id,
+        "processing_time_s": int(processing_s),
+        "baseline_s": baseline_s,
+        "time_saved_s": max(0, int(baseline_s - processing_s)),
+        "transaction_count": tx_count,
+    }
 
 
 @router.get("/{session_id}/stream")

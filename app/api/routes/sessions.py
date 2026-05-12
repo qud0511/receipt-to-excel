@@ -43,6 +43,7 @@ from app.db.repositories import (
 from app.domain.parsed_transaction import ParsedTransaction
 from app.schemas.auth import UserInfo
 from app.schemas.session import (
+    BulkTagRequest,
     SessionCreatedResponse,
     TransactionListResponse,
     TransactionPatchRequest,
@@ -329,6 +330,47 @@ async def patch_transaction(
     }
     await db.commit()
     return response_payload
+
+
+@router.post("/{session_id}/transactions/bulk-tag")
+async def bulk_tag_transactions(
+    session_id: int,
+    body: BulkTagRequest,
+    user: Annotated[UserInfo, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(_get_db)],
+) -> dict[str, object]:
+    """다중 거래 일괄 태그 적용 — transactional rollback (ADR-010 D-1).
+
+    한 row 라도 실패 시 전체 롤백 + 409 + failed_tx_ids[]. patch 본문 형식은
+    PATCH endpoint 와 동일 (variable subset).
+    """
+    db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
+    # IDOR — session 소유 확인.
+    await session_repo.get(db, user_id=db_user.id, session_id=session_id)
+
+    patch = body.patch.model_dump(exclude_none=False)
+    failed: list[int] = []
+    updated_count = 0
+    try:
+        for tx_id in body.transaction_ids:
+            try:
+                await expense_record_repo.upsert_user_input(
+                    db, user_id=db_user.id, transaction_id=tx_id, patch=patch,
+                )
+                updated_count += 1
+            except Exception:
+                failed.append(tx_id)
+                # ADR-010 D-1: 전체 롤백 — 첫 실패에서 break.
+                raise
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"failed_tx_ids": failed, "updated_count": 0},
+        ) from None
+
+    return {"ok": True, "updated_count": updated_count}
 
 
 @router.get("/{session_id}/stream")

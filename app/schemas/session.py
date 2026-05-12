@@ -85,3 +85,16 @@ class TransactionPatchRequest(BaseModel):
     headcount: int | None = Field(default=None, gt=0)
     attendees: list[str] | None = None
     note: str | None = None  # ExpenseRecord.auto_note 또는 별도 note 컬럼.
+
+
+class BulkTagRequest(BaseModel):
+    """POST /sessions/{id}/transactions/bulk-tag — 다중 거래 동일 태그 일괄 적용.
+
+    ADR-010 D-1: 부분 실패 시 전체 롤백 (transactional). 한 tx 라도 실패 → 409 +
+    failed_tx_ids[].
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    transaction_ids: list[int]
+    patch: TransactionPatchRequest

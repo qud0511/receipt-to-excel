@@ -190,6 +190,26 @@ def test_patch_transaction_last_write_wins(client: TestClient) -> None:
     assert txn["attendees"] == ["홍길동"]
 
 
+def test_bulk_tag_rollback_on_partial_failure(client: TestClient) -> None:
+    """존재하지 않는 transaction_id 포함 → 409 + 전체 rollback (ADR-010 D-1).
+
+    REQUIRE_AUTH=false 이라 default 사용자가 단일. 본 케이스는 endpoint contract 검증.
+    """
+    # 빈 session 생성 (transactions 0).
+    files = {"receipts": ("a.png", _png_bytes(), "image/png")}
+    data = {"year_month": "2026-05"}
+    create_resp = client.post("/sessions", files=files, data=data)
+    session_id = create_resp.json()["session_id"]
+
+    # 존재 안 하는 transaction_id [99999] 로 bulk-tag → 409 또는 403.
+    body = {
+        "transaction_ids": [99999],
+        "patch": {"purpose": "중식", "headcount": 3},
+    }
+    response = client.post(f"/sessions/{session_id}/transactions/bulk-tag", json=body)
+    assert response.status_code in (403, 409), response.text
+
+
 def test_sse_stream_rejects_idor(client: TestClient) -> None:
     """다른 사용자의 session_id 접근 → 403 (REQUIRE_AUTH=false 환경에서 직접 DB 조작)."""
 

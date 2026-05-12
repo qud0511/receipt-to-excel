@@ -73,7 +73,16 @@ files = ["app"]
 
 [[tool.mypy.overrides]]
 # 외부 라이브러리 stub 미보유분만 한정 완화 (사유: 공식 stub 부재)
-module = ["jose.*", "structlog.*", "alembic.*", "docling.*", "easyocr.*", "openpyxl.*", "pypdf.*"]
+module = [
+    "jose.*",
+    "structlog.*",
+    "alembic.*",
+    "docling.*",
+    "easyocr.*",
+    "openpyxl.*",
+    "pypdf.*",
+    "reportlab.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

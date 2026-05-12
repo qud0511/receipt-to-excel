@@ -16,19 +16,65 @@ from app.db.session import make_engine, make_session_maker
 from app.domain.parsed_transaction import ParsedTransaction
 from app.services.jobs.event_bus import JobEventBus
 from app.services.jobs.runner import JobRunner
+from app.services.parsers.base import BaseParser
 from app.services.parsers.card_statement.xlsx_parser import parse_xlsx as parse_card_xlsx
+from app.services.parsers.router import ParserRouter
+from app.services.parsers.rule_based.hana import HanaRuleBasedParser
+from app.services.parsers.rule_based.hyundai import HyundaiRuleBasedParser
+from app.services.parsers.rule_based.kbank import KBankRuleBasedParser
+from app.services.parsers.rule_based.lotte import LotteRuleBasedParser
+from app.services.parsers.rule_based.samsung import SamsungRuleBasedParser
+from app.services.parsers.rule_based.shinhan import ShinhanRuleBasedParser
+from app.services.parsers.rule_based.woori import WooriRuleBasedParser
 from app.services.storage.file_manager import FileSystemManager
 
 
-async def _stub_receipt_parser(
-    content: bytes, *, filename: str
-) -> list[ParsedTransaction]:
-    """Phase 6.7 임시 stub — Phase 6.7b 에서 ParserRouter (Phase 4) 와 wire.
+def _build_parser_router(settings: Settings) -> ParserRouter:
+    """Phase 4 ParserRouter — rule_based 7 + OCR Hybrid (선택) + LLM (선택).
 
-    현재는 빈 list 반환 — 잡 자체는 정상 종료, transaction 영속 0건.
+    OCR Hybrid 는 ``docling``/``easyocr`` extras 설치 시만 활성화 (smoke gate 환경).
+    로컬 dev 의 기본 — rule_based 만, OCR 미설치면 자동 skip.
     """
-    _ = content, filename
-    return []
+    rule_parsers: dict[str, BaseParser] = {
+        "shinhan": ShinhanRuleBasedParser(),
+        "samsung": SamsungRuleBasedParser(),
+        "kbank": KBankRuleBasedParser(),
+        "hana": HanaRuleBasedParser(),
+        "hyundai": HyundaiRuleBasedParser(),
+        "woori": WooriRuleBasedParser(),
+        "lotte": LotteRuleBasedParser(),
+    }
+
+    ocr_parser: BaseParser | None = None
+    try:
+        from app.services.parsers.ocr_hybrid.docling_service import DoclingService
+        from app.services.parsers.ocr_hybrid.ollama_vision_client import (
+            OllamaVisionClient,
+        )
+        from app.services.parsers.ocr_hybrid.parser import OCRHybridParser
+
+        ocr_parser = OCRHybridParser(
+            docling=DoclingService(),
+            ollama=OllamaVisionClient(settings.ollama_base_url, settings.ollama_model),
+        )
+    except ImportError:
+        ocr_parser = None  # extras 미설치 — rule_based 만 가용.
+
+    return ParserRouter(
+        rule_based_parsers=rule_parsers,  # type: ignore[arg-type]
+        ocr_hybrid_parser=ocr_parser,
+        llm_enabled=settings.llm_enabled,
+    )
+
+
+async def _receipt_parser_impl(
+    content: bytes, *, filename: str, router: ParserRouter
+) -> list[ParsedTransaction]:
+    """Phase 6.7b ParserRouter wire — JobRunner.receipt_parser 진입점.
+
+    ``router.parse()`` 가 provider 감지 → rule_based / OCR / LLM tier 선택 후 호출.
+    """
+    return await router.parse(content, filename=filename)
 
 
 def create_app() -> FastAPI:
@@ -55,11 +101,20 @@ def create_app() -> FastAPI:
         storage_root=Path(settings.storage_root),
     )
 
-    # Phase 6.6: JobEventBus (in-memory pub/sub) + JobRunner (parser orchestration).
+    # Phase 6.6: JobEventBus + JobRunner. Phase 6.7b — ParserRouter wire (rule_based 7).
     app.state.event_bus = JobEventBus()
+    app.state.parser_router = _build_parser_router(settings)
+
+    async def _receipt_parser(
+        content: bytes, *, filename: str
+    ) -> list[ParsedTransaction]:
+        return await _receipt_parser_impl(
+            content, filename=filename, router=app.state.parser_router,
+        )
+
     app.state.job_runner = JobRunner(
         event_bus=app.state.event_bus,
-        receipt_parser=_stub_receipt_parser,
+        receipt_parser=_receipt_parser,
         card_statement_parser=parse_card_xlsx,
     )
 

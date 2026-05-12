@@ -33,9 +33,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.security import UploadGuard, UploadValidationError
-from app.db.repositories import session_repo, user_repo
+from app.db.models import Transaction
+from app.db.repositories import (
+    expense_record_repo,
+    session_repo,
+    transaction_repo,
+    user_repo,
+)
+from app.domain.parsed_transaction import ParsedTransaction
 from app.schemas.auth import UserInfo
-from app.schemas.session import SessionCreatedResponse
+from app.schemas.session import (
+    SessionCreatedResponse,
+    TransactionListResponse,
+    TransactionPatchRequest,
+    TransactionView,
+)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -142,14 +154,22 @@ async def _run_job_background(
     """
     runner = request.app.state.job_runner
     try:
-        await runner.run(
+        result = await runner.run(
             session_id=session_id,
             receipts=receipts,
             card_statements=card_statements,
         )
-        # 완료 시 Session.status = awaiting_user.
+        # 잡 결과 → Transaction DB 영속 + Session.status='awaiting_user'.
         sessionmaker = request.app.state.db_sessionmaker
         async with sessionmaker() as db:
+            tx_rows = [
+                _parsed_to_db_row(parsed, session_id=session_id, user_id=user_id)
+                for parsed in result.transactions
+            ]
+            if tx_rows:
+                await transaction_repo.bulk_create(
+                    db, user_id=user_id, transactions=tx_rows,
+                )
             upload_session = await session_repo.get(
                 db, user_id=user_id, session_id=session_id,
             )
@@ -165,6 +185,150 @@ async def _run_job_background(
             upload_session.status = "failed"
             upload_session.processing_completed_at = datetime.now(UTC)
             await db.commit()
+
+
+def _parsed_to_db_row(
+    parsed: ParsedTransaction, *, session_id: int, user_id: int
+) -> Transaction:
+    """ParsedTransaction (도메인) → Transaction (ORM) 매핑.
+
+    AD-1 raw 보존 — 가맹점명 그대로. AD-2 canonical 형식 (parser 가 보장).
+    """
+    return Transaction(
+        session_id=session_id,
+        user_id=user_id,
+        merchant_name=parsed.가맹점명,
+        transaction_date=parsed.거래일,
+        transaction_time=parsed.거래시각,
+        amount=parsed.금액,
+        supply_amount=parsed.공급가액,
+        vat=parsed.부가세,
+        approval_number=parsed.승인번호,
+        business_category=parsed.업종,
+        card_number_masked=parsed.카드번호_마스킹,
+        card_provider=parsed.카드사,
+        parser_used=parsed.parser_used,
+        field_confidence=dict(parsed.field_confidence),
+        source_filename="(uuid 디스크명)",  # Phase 6.7c 에서 실 매핑.
+        source_file_path="(per-user FS path)",  # Phase 6.7c.
+        original_filename=None,  # Phase 6.7c — UploadInfo 와 link.
+    )
+
+
+_CONFIDENCE_SCORE: dict[str, float] = {
+    "high": 1.0,
+    "medium": 0.66,
+    "low": 0.33,
+    "none": 0.0,
+}
+
+
+def _compute_confidence_score(field_confidence: dict[str, str]) -> float:
+    """row-level 종합 신뢰도 — high=1 medium=0.66 low=0.33 none=0 평균.
+
+    ADR-010 자료 검증 B-5: Verify 그리드 'AI 신뢰도%' 컬럼 표시.
+    """
+    if not field_confidence:
+        return 0.0
+    scores = [_CONFIDENCE_SCORE.get(v, 0.0) for v in field_confidence.values()]
+    return sum(scores) / len(scores)
+
+
+def _classify_row_status(
+    tx: Transaction, expense: object | None
+) -> str:
+    """Verify Filter chips 분류 (ADR-010 B-9): missing / review / complete."""
+    if not tx.merchant_name or not tx.transaction_date or tx.amount <= 0:
+        return "missing"
+    confidences = list(tx.field_confidence.values()) if tx.field_confidence else []
+    if any(v in ("low", "none") for v in confidences):
+        return "review"
+    return "complete"
+
+
+@router.get("/{session_id}/transactions", response_model=TransactionListResponse)
+async def list_transactions(
+    session_id: int,
+    user: Annotated[UserInfo, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(_get_db)],
+    status_filter: Annotated[str, str] = "all",
+) -> TransactionListResponse:
+    """Verify 그리드 백엔드 — 거래 + 신뢰도 + (ExpenseRecord 사용자 입력) + Filter chips 카운트.
+
+    ADR-010 B-5: 9 컬럼 + B-9: filter (all/missing/review/complete).
+    """
+    db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
+    # IDOR 차단.
+    await session_repo.get(db, user_id=db_user.id, session_id=session_id)
+
+    txs = await transaction_repo.list_for_session(
+        db, user_id=db_user.id, session_id=session_id,
+    )
+
+    counts = {"all": len(txs), "missing": 0, "review": 0, "complete": 0}
+    views: list[TransactionView] = []
+    for tx in txs:
+        expense = await expense_record_repo.get_by_transaction(
+            db, user_id=db_user.id, transaction_id=tx.id,
+        )
+        row_status = _classify_row_status(tx, expense)
+        counts[row_status] += 1
+        if status_filter not in ("all", row_status):
+            continue
+        views.append(
+            TransactionView(
+                id=tx.id,
+                가맹점명=tx.merchant_name,
+                거래일=tx.transaction_date.isoformat(),
+                거래시각=tx.transaction_time.isoformat() if tx.transaction_time else None,
+                금액=tx.amount,
+                업종=tx.business_category,
+                카드사=tx.card_provider,
+                카드번호_마스킹=tx.card_number_masked,
+                parser_used=tx.parser_used,
+                field_confidence=dict(tx.field_confidence) if tx.field_confidence else {},
+                confidence_score=_compute_confidence_score(
+                    dict(tx.field_confidence) if tx.field_confidence else {},
+                ),
+                vendor=None,  # Phase 6.9 vendor_repo lookup 으로 채움.
+                project=None,  # Phase 6.9.
+                purpose=expense.purpose if expense else None,
+                headcount=expense.headcount if expense else None,
+                attendees=list(expense.attendees_json) if expense else [],
+            ),
+        )
+    return TransactionListResponse(transactions=views, counts=counts)
+
+
+@router.patch("/{session_id}/transactions/{tx_id}")
+async def patch_transaction(
+    session_id: int,
+    tx_id: int,
+    body: TransactionPatchRequest,
+    user: Annotated[UserInfo, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(_get_db)],
+) -> dict[str, object]:
+    """Verify 검수 입력 저장 — last-write-wins (ADR-010 D-2).
+
+    Body 의 not-None 필드만 적용. 다른 사용자 transaction 참조 시 403.
+    """
+    db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
+    # IDOR — session 소유 확인.
+    await session_repo.get(db, user_id=db_user.id, session_id=session_id)
+
+    patch = body.model_dump(exclude_none=False)
+    updated = await expense_record_repo.upsert_user_input(
+        db, user_id=db_user.id, transaction_id=tx_id, patch=patch,
+    )
+    # commit 전에 값을 캡처 — expire_on_commit 으로 인한 lazy load 회피.
+    response_payload: dict[str, object] = {
+        "ok": True,
+        "transaction_id": tx_id,
+        "expense_record_id": updated.id,
+        "updated_at": updated.updated_at.isoformat(),
+    }
+    await db.commit()
+    return response_payload
 
 
 @router.get("/{session_id}/stream")

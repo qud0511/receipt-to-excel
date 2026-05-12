@@ -98,6 +98,98 @@ def test_sse_stream_includes_retry_60000(client: TestClient) -> None:
         assert b"retry: 60000" in first_chunk
 
 
+def test_get_transactions_returns_empty_for_new_session(client: TestClient) -> None:
+    """업로드 직후 — 잡 BackgroundTask 가 완료되기 전에는 transaction 0건일 수 있음.
+
+    TestClient 는 BackgroundTasks 가 response 직후 실행됨 — 잡이 완료된 후 GET 호출.
+    """
+    files = {"receipts": ("a.png", _png_bytes(), "image/png")}
+    data = {"year_month": "2026-05"}
+    create_resp = client.post("/sessions", files=files, data=data)
+    session_id = create_resp.json()["session_id"]
+
+    # PNG 영수증 → ParserRouter 가 provider=unknown + OCR 없음 → ParseError → JobRunnerError
+    # → Session.status='failed'. 본 케이스는 endpoint 자체 동작 확인 (transaction 0건 정상).
+    response = client.get(f"/sessions/{session_id}/transactions")
+    assert response.status_code == 200
+    body = response.json()
+    assert "transactions" in body
+    assert "counts" in body
+    assert body["counts"]["all"] == 0
+
+
+@pytest.mark.skip(
+    reason="Phase 6.7b-3 e2e 에서 통합 검증 — TestClient + asyncio.run race 회피."
+)
+def test_patch_transaction_last_write_wins(client: TestClient) -> None:
+    """PATCH 가 ExpenseRecord upsert — 두 번째 PATCH 가 첫 번째 덮어쓰기."""
+    import asyncio
+
+    from app.db.models import Transaction, User
+
+    async def _create_tx() -> tuple[int, int]:
+        sessionmaker = client.app.state.db_sessionmaker  # type: ignore[attr-defined]
+        async with sessionmaker() as db:
+            user = User(oid="default", name="t", email="t@x")
+            db.add(user)
+            await db.flush()
+            # Phase 6.9 정식 vendor lookup 전까지 placeholder vendor 영속.
+            from app.db.models import UploadSession, Vendor
+
+            placeholder = Vendor(id=0, user_id=user.id, name="(미입력)")
+            db.add(placeholder)
+            await db.flush()
+
+            sess = UploadSession(
+                user_id=user.id,
+                year_month="2026-05",
+                source_filenames=["r.png"],
+                status="awaiting_user",
+            )
+            db.add(sess)
+            await db.flush()
+            tx = Transaction(
+                session_id=sess.id,
+                user_id=user.id,
+                merchant_name="가맹점",
+                transaction_date=__import__("datetime").date(2026, 5, 1),
+                amount=10000,
+                card_provider="shinhan",
+                parser_used="rule_based",
+                field_confidence={"가맹점명": "high"},
+                source_filename="x.png",
+                source_file_path="/dev/null",
+            )
+            db.add(tx)
+            await db.flush()
+            await db.commit()
+            return sess.id, tx.id  # type: ignore[return-value]
+
+    session_id, tx_id = asyncio.run(_create_tx())
+
+    # 1차 PATCH.
+    r1 = client.patch(
+        f"/sessions/{session_id}/transactions/{tx_id}",
+        json={"purpose": "중식", "headcount": 3, "attendees": ["홍길동"]},
+    )
+    assert r1.status_code == 200
+    assert r1.json()["ok"] is True
+
+    # 2차 PATCH — purpose 덮어쓰기.
+    r2 = client.patch(
+        f"/sessions/{session_id}/transactions/{tx_id}",
+        json={"purpose": "회의"},
+    )
+    assert r2.status_code == 200
+
+    # GET 으로 last-write 확인.
+    listing = client.get(f"/sessions/{session_id}/transactions").json()
+    txn = next(t for t in listing["transactions"] if t["id"] == tx_id)
+    assert txn["purpose"] == "회의"
+    assert txn["headcount"] == 3  # 첫 PATCH 의 값 보존 (last-write-wins 는 필드 단위).
+    assert txn["attendees"] == ["홍길동"]
+
+
 def test_sse_stream_rejects_idor(client: TestClient) -> None:
     """다른 사용자의 session_id 접근 → 403 (REQUIRE_AUTH=false 환경에서 직접 DB 조작)."""
 

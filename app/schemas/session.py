@@ -68,3 +68,20 @@ class TransactionListResponse(BaseModel):
 
     transactions: list[TransactionView]
     counts: dict[str, int]  # all / missing / review / complete.
+
+
+class TransactionPatchRequest(BaseModel):
+    """PATCH /sessions/{id}/transactions/{tx_id} 본문 — 사용자 검수 입력.
+
+    ADR-010 D-2 동의: last-write-wins (Phase 6 단순화) — ETag/If-Match 없음.
+    모든 필드 옵셔널 — 변경된 필드만 보내면 됨.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    vendor: str | None = None
+    project: str | None = None
+    purpose: str | None = None
+    headcount: int | None = Field(default=None, gt=0)
+    attendees: list[str] | None = None
+    note: str | None = None  # ExpenseRecord.auto_note 또는 별도 note 컬럼.

@@ -156,23 +156,85 @@ Phase 4 1차 smoke 결과 후 발견된 미해결 사항 5건 일괄 처리:
 
 mypy --strict + ruff + pip-audit 모두 통과.
 
-### Smoke Gate 최종 결과
+### Smoke Gate 최종 결과 (2026-05-12, 30 분 42 파일 실행)
 
-자세한 결과: `tests/smoke/results/{YYYYMMDD}.md` (PII 마스킹 적용 — 각 거래 row 별 기록).
+`tests/smoke/results/20260512.md` (PII 마스킹, 각 거래 row 별 기록).
 
-| 게이트 | 결과 |
+| 지표 | 값 |
 | --- | --- |
-| 합성 fixture 회귀 | 0 건 |
-| woori_nup_01.pdf — 4 거래 추출 | ✅ |
-| woori_nup_02.pdf — 5 거래 추출 (2 페이지) | ✅ |
-| hyundai_01.pdf — OCR Hybrid 폴백 라우팅 | 확인 (smoke 실행 시 검증) |
-| 실 PDF 42 파일 — 통과율 | (smoke 실행 후 갱신) |
+| PASSED | **11 / 42 = 26 %** |
+| FAILED | 31 / 42 (모두 `가맹점명=''` — OCR 빈 문자열) |
+| 사용자 임계값 | 70 % 미만 → **멈춤 + 분석 보고** (현재 26 % → 임계 위반) |
+| 단위/통합 회귀 | 146 / 3 (skip 1) — 0 건 회귀, mypy --strict + ruff 통과 |
 
-### Phase 5 진입 조건 충족 선언
+#### PASSED 목록 (모두 OCR Hybrid 경로)
 
-- ADR-003·004·005·006 모두 status=accepted.
-- 단위 테스트 + 통합 테스트 + mypy + ruff 모두 GREEN.
-- 합성 fixture vs 실 자료 정합성 검증 완료 (우리카드 N-up).
-- 실 양식 분석 (ADR-006) 으로 Phase 5 TemplateAnalyzer 사양 고정.
+`hyundai_01.pdf` (신규) · `kbank_{01,02,05}.pdf` · `lotte_01.pdf` · `samsung_{02,06,07,08}.pdf` · `woori_legacy_{01,02}.jpg`.
 
-**Phase 5 진입 — 사용자 승인 대기.**
+#### FAILED 분류
+
+- 신한 18 (택시 6 포함) — 전부 OCR 폴백 후 빈 가맹점명
+- 삼성 4 (samsung_{01,03,04,05}) — 동일 패턴
+- 케이뱅크 2 (kbank_{03,04}) — LLM 일관성 부족
+- 카카오뱅크 3 — OCR 후처리 후 빈 가맹점명
+- 하나 2 (JPG) — 빈 가맹점명
+- 우리 N-up 2 (woori_nup_{01,02}.pdf) — RuleBased 미적용 (근본 원인 §아래)
+
+### 근본 원인 — provider 감지 + parser layout 양쪽 모두 사전 결함
+
+#### 결함 1: PDF 한글 시그니처 byte 매칭 불가 (모든 카드사 영향)
+
+PDF 내 한글 텍스트는 raw bytes 에 UTF-8 로 존재하지 않음. font ToUnicode mapping 으로 pdfplumber 추출 시점에만 한글 가시화.
+
+| PDF | `"카드사".encode() in raw_bytes` | extracted text 한글 |
+| --- | --- | --- |
+| `woori_nup_01.pdf` | ❌ False | ✅ "국내전용카드" |
+| `shinhan_01.pdf` | ❌ False | ✅ "신한카드" |
+| `samsung_01.pdf` | ❌ False | ✅ "삼성카드" |
+
+영향: `router.detect_provider()` 의 byte 매칭이 ASCII URL (`shinhancard.com` 등) 에만 의존. URL 없는 카드사 (우리 N-up · 삼성/케뱅크 일부) 는 provider="unknown" → OCR Hybrid 강제.
+
+본 세션 Task 2 의 우리카드 N-up 이중 게이트 (filename + `"국내전용카드"` fingerprint) 도 동일 이유로 raw bytes 매칭 실패 → RuleBased 미적용 (unit 테스트는 parser 직접 호출이라 통과했음).
+
+#### 결함 2: rule_based 정규식 vs 실 자료 layout 불일치 (provider 식별돼도 실패)
+
+`shinhan_01.pdf` 추출 텍스트 일부:
+```
+26. 1. 2. 오전 11:21 카드매출전표 < 신한카드
+2026.1.2\x0111:21:53           ← 점 구분자 + \x01 컨트롤 문자
+```
+
+shinhan parser 정규식 `(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})` (대시 + 공백) 미일치 → `RequiredFieldMissingError` → OCR 폴백. 합성 fixture (`make_shinhan_receipt`) 의 layout 이 실 자료와 다른 **v1 회귀 패턴**.
+
+samsung / kbank 도 유사 layout 차이 의심.
+
+#### 결함 3: OCR Hybrid LLM 의 가맹점명 빈 문자열 응답
+
+OCR 폴백 후에도 31 / 42 에서 가맹점명 ''. ParsedTransaction 의 `가맹점명: str` 이 empty string 을 허용해 Pydantic strict 미차단. smoke assertion `assert result.가맹점명` 만 차단.
+
+LLM (qwen2.5vl:7b) 의 응답 일관성 부족 — prompt 재설계 또는 빈 값 검증 후 retry 필요.
+
+### 본 세션 5 작업의 실제 효과
+
+| Task | 산출 | smoke 효과 |
+| --- | --- | --- |
+| 1: fixture 정규화 (ADR-003) | ✅ PII 마스킹 정상 | smoke 결과에 한글명 노출 0 — 정상 |
+| 2: 우리카드 RuleBased (ADR-004) | ✅ unit 11/11 + real PDF 2/2 통과 | ❌ router 진입 실패 (결함 1) — 미적용 |
+| 3: N-up splitter (ADR-005) | ✅ unit 7/7 + 마이그레이션 완료 | ❌ Task 2 와 동반 — 미적용 |
+| 4: hyundai stub + OCR 라우팅 | ✅ filename hint 동작 | ✅ `hyundai_01.pdf` 통과 (신규 1 건) |
+| 5: 지출결의서 분석 (ADR-006) | ✅ Phase 5 자료 + skip 통합 테스트 | N/A (Phase 5 범위) |
+
+### Phase 5 진입 게이트 — **미충족**
+
+진입 조건 (사용자 정의 70 % 통과) 미달. 4 결함 해소 필요:
+
+1. **결함 1 (provider 감지)**: `detect_provider()` 를 text-aware 로 변경 — `is_text_embedded()` 가 이미 추출하는 텍스트 결과 캐시 사용. router 한 곳 + 호출자 1 줄. → Task 2 의 woori RuleBased 즉시 활성화 예상.
+2. **결함 2 (rule_based layout)**: shinhan / samsung / kbank 정규식 보강 + 실 PDF 기반 unit 테스트 추가 (4 카드사 × 5 케이스 ~ 20 테스트). v1 회귀 차단 핵심 작업.
+3. **결함 3 (OCR LLM 빈 응답)**: prompt 강화 또는 빈 응답 시 retry 로직.
+4. **rule_based 가 도달 가능해진 후 재smoke** → 90 % 이상 통과 시 Phase 5 진입.
+
+본 세션 외 추가 작업 요청 사항. ADR-007/008/009 (각 결함별) 필요 예상.
+
+---
+
+> ⚠️ Phase 4 는 **DoD 1차 항목 (단위 테스트) 충족** 이나, **Smoke Gate 미통과** 로 인해 Phase 5 진입 차단 상태. 본 세션 산출 (ADR-003~006 + woori N-up parser + N-up splitter + hyundai routing) 은 Phase 5 시작 가능 시점까지 보존.

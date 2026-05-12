@@ -11,11 +11,18 @@ import io
 
 
 def is_text_embedded(content: bytes) -> bool:
-    """PDF 가 텍스트 레이어를 가졌는지 — BT 토큰 기반 빠른 검사."""
+    """PDF 가 텍스트 레이어를 가졌는지 — 다중 토큰 휴리스틱.
+
+    검출 토큰 (OR 결합):
+    - ``BT`` — 비압축 content stream 의 begin-text 블록.
+    - ``/Font`` — 폰트 리소스 참조 (압축 stream 의 텍스트 PDF 도 폰트 ref 보유).
+    - ``/ToUnicode`` — CID 폰트의 Unicode mapping (한글/CJK 텍스트 PDF 필수).
+
+    BT 만으로는 압축 stream 텍스트 PDF (예: 우리카드 N-up case 2) 를 놓침.
+    """
     if not content.startswith(b"%PDF"):
-        # PDF 가 아닌 입력 (JPG 등) — 텍스트 임베디드 아님으로 간주.
         return False
-    return b"BT" in content
+    return b"BT" in content or b"/Font" in content or b"/ToUnicode" in content
 
 
 def extract_pdf_text(content: bytes) -> str | None:

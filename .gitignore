@@ -16,7 +16,8 @@ __pycache__/
 *.db-journal
 
 # Storage / smoke fixtures (PII)
-storage/
+# /storage/ = repo-root runtime FS (PII). app/services/storage/ (코드) 는 commit 대상.
+/storage/
 tests/smoke/real_pdfs/
 tests/smoke/real_templates/
 tests/smoke/results/

@@ -89,32 +89,41 @@ def _build_router() -> ParserRouter:
 
 def _record_result(
     file_path: Path,
-    result: ParsedTransaction,
+    results: list[ParsedTransaction],
     elapsed: float,
 ) -> None:
-    """tests/smoke/results/YYYYMMDD.md 에 누적 기록."""
+    """tests/smoke/results/YYYYMMDD.md 에 누적 기록 — ADR-005 list 반환 대응.
+
+    N-up 매출전표(1 파일 → N 거래)는 각 거래를 별도 row 로 기록. 파일 latency 는 전체 합산 1 회만.
+    """
     _RESULTS_DIR.mkdir(exist_ok=True)
     today = datetime.now(UTC).strftime("%Y%m%d")
     md_path = _RESULTS_DIR / f"{today}.md"
 
     if not md_path.exists():
         header_cols = (
-            "| file | parser_used | 가맹점명 | 거래일 | 금액 "
+            "| file | tx_idx | parser_used | 가맹점명 | 거래일 | 금액 "
             "| confidence(high+medium) | latency_s |\n"
         )
         md_path.write_text(
-            f"# Smoke Run — {today}\n\n{header_cols}|---|---|---|---|---|---|---|\n",
+            f"# Smoke Run — {today}\n\n{header_cols}|---|---|---|---|---|---|---|---|\n",
             encoding="utf-8",
         )
 
-    high_medium = sum(1 for v in result.field_confidence.values() if v in ("high", "medium"))
-    total = len(result.field_confidence)
-    row = (
-        f"| {file_path.name} | {result.parser_used} | {result.가맹점명} | "
-        f"{result.거래일} | {result.금액} | {high_medium}/{total} | {elapsed:.1f} |\n"
-    )
     with md_path.open("a", encoding="utf-8") as f:
-        f.write(row)
+        for idx, result in enumerate(results):
+            high_medium = sum(
+                1 for v in result.field_confidence.values() if v in ("high", "medium")
+            )
+            total = len(result.field_confidence)
+            # latency 는 첫 row 만 기록 (파일 단위 시간) — N-up 다른 거래는 "-".
+            latency_str = f"{elapsed:.1f}" if idx == 0 else "-"
+            row = (
+                f"| {file_path.name} | {idx + 1}/{len(results)} | {result.parser_used} | "
+                f"{result.가맹점명} | {result.거래일} | {result.금액} | "
+                f"{high_medium}/{total} | {latency_str} |\n"
+            )
+            f.write(row)
 
 
 _REAL_FILES = _list_real_files()
@@ -140,28 +149,37 @@ async def test_real_pdf_extracts_required_fields(file_path: Path) -> None:
 
     start = time.monotonic()
     try:
-        [result] = await router.parse(content, filename=file_path.name)
+        results = await router.parse(content, filename=file_path.name)
     except ParseError as e:
         pytest.fail(f"{file_path.name}: {type(e).__name__}: {e}")
     finally:
         structlog.contextvars.clear_contextvars()
     elapsed = time.monotonic() - start
 
-    # 필수 3 필드.
-    assert result.가맹점명, f"{file_path.name}: 가맹점명 missing"
-    assert result.거래일 is not None, f"{file_path.name}: 거래일 missing"
-    assert result.금액 > 0, f"{file_path.name}: 금액 not positive"
+    # 1 파일 → 1+ 거래 (ADR-005 list 반환).
+    assert results, f"{file_path.name}: empty result list"
 
-    # confidence — high 또는 medium 1개 이상.
-    high_medium = sum(1 for v in result.field_confidence.values() if v in ("high", "medium"))
-    assert high_medium >= 1, (
-        f"{file_path.name}: no high/medium confidence (confidence={result.field_confidence})"
-    )
+    for idx, result in enumerate(results):
+        loc = f"{file_path.name}#tx{idx + 1}/{len(results)}"
+        assert result.가맹점명, f"{loc}: 가맹점명 missing"
+        assert result.거래일 is not None, f"{loc}: 거래일 missing"
+        assert result.금액 > 0, f"{loc}: 금액 not positive"
+        high_medium = sum(
+            1 for v in result.field_confidence.values() if v in ("high", "medium")
+        )
+        assert high_medium >= 1, (
+            f"{loc}: no high/medium confidence (confidence={result.field_confidence})"
+        )
 
-    # 처리 시간 — parser_used 별 limit.
-    limit_s = 5.0 if result.parser_used == "rule_based" else 60.0
+    # 처리 시간 — parser_used 별 limit (첫 결과 기준). N-up 은 latency 가 누적이라 여유.
+    parser_used = results[0].parser_used
+    limit_s = 5.0 if parser_used == "rule_based" else 60.0
+    # N-up 다중 거래 시 거래 수에 비례 — 우리카드 4~5 tx 가 1 파일 → 5s 초과 가능.
+    if parser_used == "rule_based" and len(results) > 1:
+        limit_s = 5.0 * len(results)
     assert elapsed < limit_s, (
-        f"{file_path.name}: {elapsed:.1f}s exceeds {limit_s}s ({result.parser_used})"
+        f"{file_path.name}: {elapsed:.1f}s exceeds {limit_s}s "
+        f"({parser_used}, {len(results)} tx)"
     )
 
-    _record_result(file_path, result, elapsed)
+    _record_result(file_path, results, elapsed)

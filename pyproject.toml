@@ -25,6 +25,9 @@ dependencies = [
     "pdfplumber>=0.11,<1",
     # pdfplumber transitive 의 pillow — CVE-2026-42309/10/11 패치 (12.2 이상) 강제.
     "pillow>=12.2,<13",
+    # XLSX 읽기/쓰기 + PDF 병합 — Phase 5 Templates + Generators.
+    "openpyxl>=3.1,<4",
+    "pypdf>=4.0,<6",
 ]
 
 [project.optional-dependencies]
@@ -70,7 +73,7 @@ files = ["app"]
 
 [[tool.mypy.overrides]]
 # 외부 라이브러리 stub 미보유분만 한정 완화 (사유: 공식 stub 부재)
-module = ["jose.*", "structlog.*", "alembic.*", "docling.*", "easyocr.*"]
+module = ["jose.*", "structlog.*", "alembic.*", "docling.*", "easyocr.*", "openpyxl.*", "pypdf.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

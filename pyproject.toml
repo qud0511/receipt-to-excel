@@ -28,6 +28,8 @@ dependencies = [
     # XLSX 읽기/쓰기 + PDF 병합 — Phase 5 Templates + Generators.
     "openpyxl>=3.1,<4",
     "pypdf>=4.0,<6",
+    # multipart 업로드 form parsing — Phase 6 Sessions/Templates API.
+    "python-multipart>=0.0.20,<1",
 ]
 
 [project.optional-dependencies]

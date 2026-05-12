@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # DB
     database_url: str = "sqlite+aiosqlite:///storage/app.db"
 
+    # Phase 6: FileSystemManager root. per-user FS = {storage_root}/users/{oid}/...
+    storage_root: str = "storage"
+
     # LLM / Ollama — ADR-002 (qwen2.5vl:7b — CPU 환경 호환).
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5vl:7b"

@@ -33,14 +33,16 @@ class _OcrStub(BaseParser):
     def tier(self) -> ParserTier:
         return "ocr_hybrid"
 
-    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
-        return ParsedTransaction(
-            가맹점명="ocr-resolved",
-            거래일=date(2026, 1, 1),
-            금액=1000,
-            parser_used="ocr_hybrid",
-            field_confidence={"가맹점명": "medium", "금액": "medium"},
-        )
+    async def parse(self, content: bytes, *, filename: str) -> list[ParsedTransaction]:
+        return [
+            ParsedTransaction(
+                가맹점명="ocr-resolved",
+                거래일=date(2026, 1, 1),
+                금액=1000,
+                parser_used="ocr_hybrid",
+                field_confidence={"가맹점명": "medium", "금액": "medium"},
+            )
+        ]
 
 
 # ── 1~2) 2 stubs (hana / lotte) 가 ParserNotImplementedError 를 던진다 ──────
@@ -62,7 +64,7 @@ async def test_router_falls_back_to_ocr_hybrid_when_stub_raises() -> None:
         rule_based_parsers={"hana": HanaRuleBasedParser()},
         ocr_hybrid_parser=_OcrStub(),
     )
-    result = await router.parse(_HANA_PDF, filename="hana.pdf")
+    [result] = await router.parse(_HANA_PDF, filename="hana.pdf")
     assert result.parser_used == "ocr_hybrid"
 
 

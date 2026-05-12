@@ -115,8 +115,10 @@ class ParserRouter:
             tier_attempted="llm" if self._llm_enabled else "ocr_hybrid",
         )
 
-    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
+    async def parse(self, content: bytes, *, filename: str) -> list[ParsedTransaction]:
         """tier 폴백 체인 — rule_based → ocr_hybrid → llm.
+
+        ADR-005: list[ParsedTransaction] 반환 — N-up 매출전표는 1 파일 → N 거래.
 
         - ``ParserNotImplementedError`` / ``RequiredFieldMissingError`` 는 다음 tier 로 fall-through
         - 모두 실패 시: provider unknown + OCR 없음 → ``ProviderNotDetectedError``

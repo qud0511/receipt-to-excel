@@ -44,10 +44,11 @@ class ShinhanRuleBasedParser(BaseParser):
     def tier(self) -> ParserTier:
         return "rule_based"
 
-    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
+    async def parse(self, content: bytes, *, filename: str) -> list[ParsedTransaction]:
         # pdfplumber 는 동기 — async 컨텍스트 차단 방지 (CLAUDE.md §"성능").
         text = await asyncio.to_thread(self._extract_text, content)
-        return self._parse_from_text(text)
+        # ADR-005: 신한카드는 영수증당 1 거래 — 단일 결과 list 1 래핑.
+        return [self._parse_from_text(text)]
 
     @staticmethod
     def _extract_text(content: bytes) -> str:

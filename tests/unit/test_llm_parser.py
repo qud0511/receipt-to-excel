@@ -40,7 +40,7 @@ def test_llm_parser_skipped_when_llm_disabled() -> None:
 # ── 2) same output schema — ParsedTransaction 계약 동일 ──────────────────────
 async def test_llm_parser_uses_same_output_schema() -> None:
     parser = LLMOnlyParser(ollama=_MockOllama(), enabled=True)
-    result = await parser.parse(b"fake", filename="x.pdf")
+    [result] = await parser.parse(b"fake", filename="x.pdf")
     assert isinstance(result, ParsedTransaction)
     assert result.가맹점명 == "스타벅스"
     assert result.금액 == 4500
@@ -49,5 +49,5 @@ async def test_llm_parser_uses_same_output_schema() -> None:
 # ── 3) parser_used="llm" 강제 (LLM 응답이 다른 값을 주장해도 우리가 결정) ──────
 async def test_llm_parser_records_parser_used_llm() -> None:
     parser = LLMOnlyParser(ollama=_MockOllama(), enabled=True)
-    result = await parser.parse(b"fake", filename="x.pdf")
+    [result] = await parser.parse(b"fake", filename="x.pdf")
     assert result.parser_used == "llm"

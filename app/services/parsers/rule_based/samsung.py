@@ -42,9 +42,10 @@ class SamsungRuleBasedParser(BaseParser):
     def tier(self) -> ParserTier:
         return "rule_based"
 
-    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
+    async def parse(self, content: bytes, *, filename: str) -> list[ParsedTransaction]:
         text = await asyncio.to_thread(self._extract_text, content)
-        return self._parse_from_text(text)
+        # ADR-005: 삼성카드는 영수증당 1 거래 — 단일 결과 list 1 래핑.
+        return [self._parse_from_text(text)]
 
     @staticmethod
     def _extract_text(content: bytes) -> str:

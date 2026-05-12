@@ -1,14 +1,14 @@
 """우리카드 매출전표 룰 기반 파서.
 
 ADR-004 §"우리카드 N-up layout 분석" 의 결정 사항:
-- 라벨 없는 위치 기반 layout — `국내전용카드` 마커 이후 14~16 line block.
+- 라벨 없는 위치 기반 layout — `국내전용카드` 마커 이후 12~16 line block.
 - 4-line 금액 순서 추정: ① 거래금액 ② 봉사료 ③ 부가세 ④ 자원순환보증금.
-  근거: 70,000 x 10/110 ≈ 6,364 (line 3 = 부가세) 비율 일치.
-- 거래일+시각 붙음 (yyyy/MM/ddHH:mm:ss) — 다른 카드사와 다른 우리카드 특이.
-- Confidence: 거래금액=high, 부가세=medium (위치 추정 + 비율 검증), 봉사료/자원순환=low.
+- 거래일+시각 붙음 (yyyy/MM/ddHH:mm:ss) — 우리카드 특이.
+- Confidence: 거래금액=high, 부가세=medium, 봉사료/자원순환=low.
 
-Task 2 범위: 단일 transaction 블록 추출 (synthetic + 1-col 실 자료).
-Task 3 에서 N-up (2-column) 분할 지원 + 시그니처 list 반환으로 마이그레이션.
+ADR-005 §"Parser returns list":
+- N-up (2-column) 페이지 → ``page.crop()`` 으로 컬럼별 분리 후 splitter 적용.
+- 단일 거래도 길이 1 list 반환 (일관 계약).
 """
 
 from __future__ import annotations
@@ -27,18 +27,20 @@ from app.services.parsers.base import (
     BaseParser,
     FormatMismatchError,
     ParserTier,
+    ProviderNotDetectedError,
     RequiredFieldMissingError,
 )
+from app.services.parsers.preprocessor.nup_splitter import split_by_marker
 
 _log = structlog.get_logger(__name__)
 
-# 페이지 발행 timestamp — 거래일과 별개. 추출 시 skip.
+# 페이지 발행 timestamp — 거래일과 별개. 추출 시 skip (splitter 가 처리).
 _PAGE_HEADER_TIMESTAMP = re.compile(r"^\d{4}\.\d{2}\.\d{2}\s*\d{2}:\d{2}:\d{2}$")
-# 블록 마커 — N-up 의 좌·우 같은 line 에 반복될 수 있음 ("국내전용카드 국내전용카드").
+# 블록 마커.
 _BLOCK_MARKER = "국내전용카드"
-# 거래일+시각 — 공백이 있거나 없거나 모두 허용 (yyyy/MM/ddHH:mm:ss 또는 yyyy/MM/dd HH:mm:ss).
+# 거래일+시각 — 공백이 있거나 없거나 모두 허용.
 _DATETIME = re.compile(r"^(\d{4})/(\d{2})/(\d{2})\s*(\d{2}):(\d{2}):(\d{2})$")
-# 카드번호 — raw "NNNN-NN**-****-NNNN" 또는 이미 canonical "NNNN-****-****-NNNN".
+# 카드번호 — raw "NNNN-NN**-****-NNNN" 또는 이미 canonical.
 _CARD = re.compile(r"^(\d{4})-(?:\d{2}\*\*|\*{4})-\*{4}-(\d{4})$")
 # 광역시/도 prefix — 가맹점명 휴리스틱 (주소 line 시작 검출용).
 _ADDRESS_PREFIX = re.compile(
@@ -53,57 +55,66 @@ _APPROVAL_NUMBER = re.compile(r"^\d{8}$")
 
 
 class WooriRuleBasedParser(BaseParser):
-    """우리카드 매출전표 — 라벨 없는 위치 기반 layout (ADR-004)."""
+    """우리카드 매출전표 — 라벨 없는 위치 기반 layout + N-up 분할 (ADR-004/005)."""
 
     @property
     def tier(self) -> ParserTier:
         return "rule_based"
 
-    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
-        text = await asyncio.to_thread(self._extract_text, content)
-        blocks = self._split_into_blocks(text)
-        if not blocks:
+    async def parse(self, content: bytes, *, filename: str) -> list[ParsedTransaction]:
+        column_texts = await asyncio.to_thread(self._extract_per_column_texts, content)
+        results: list[ParsedTransaction] = []
+        for column_text in column_texts:
+            try:
+                block_texts = split_by_marker(column_text, _BLOCK_MARKER)
+            except ProviderNotDetectedError:
+                # 컬럼에 마커 없음 (예: 마지막 페이지 홀수번째 거래만 있는 column 2).
+                continue
+            for block_text in block_texts:
+                lines = [ln for ln in block_text.splitlines() if ln.strip()]
+                results.append(self._parse_single_block(lines, filename=filename))
+
+        if not results:
             raise RequiredFieldMissingError(
                 "국내전용카드 블록 마커 미발견",
                 field="가맹점명",
-                reason="no '국내전용카드' marker found in extracted text",
+                reason="no '국내전용카드' marker found in any column",
                 tier_attempted="rule_based",
             )
-        return self._parse_single_block(blocks[0], filename=filename)
+        return results
 
     @staticmethod
-    def _extract_text(content: bytes) -> str:
-        with pdfplumber.open(io.BytesIO(content)) as pdf:
-            return "\n".join(p.extract_text() or "" for p in pdf.pages)
+    def _extract_per_column_texts(content: bytes) -> list[str]:
+        """페이지마다 N-up 컬럼 개수 감지 후 컬럼별 텍스트 반환.
 
-    @staticmethod
-    def _split_into_blocks(text: str) -> list[list[str]]:
-        """`국내전용카드` 마커 단위로 line block 분리.
-
-        Task 2: single-column 가정 — 마커 line 토큰 수와 무관하게 각 line 을 1 token 으로 처리.
-        Task 3 에서 2-column N-up 분할 도입 시 별도 splitter 모듈로 분리.
+        - 1-col page → 한 element (page 전체 text)
+        - 2-col N-up page → 두 element (좌 컬럼 text, 우 컬럼 text)
+        - pdfplumber crop 으로 좌·우 절반 분리 후 각각 ``extract_text()``
         """
-        blocks: list[list[str]] = []
-        current: list[str] | None = None
-        for raw in text.splitlines():
-            line = raw.strip()
-            if not line:
-                continue
-            if _PAGE_HEADER_TIMESTAMP.match(line):
-                continue
-            # 마커 line — 단독("국내전용카드") 또는 N-up 반복("국내전용카드 국내전용카드").
-            if line.replace(_BLOCK_MARKER, "").strip() == "":
-                if current is not None:
-                    blocks.append(current)
-                current = []
-                continue
-            if current is not None:
-                current.append(line)
-        if current is not None:
-            blocks.append(current)
-        return blocks
+        texts: list[str] = []
+        with pdfplumber.open(io.BytesIO(content)) as pdf:
+            for page in pdf.pages:
+                full_text = page.extract_text() or ""
+                col_count = _detect_column_count(full_text)
+                if col_count <= 1:
+                    texts.append(full_text)
+                    continue
+                page_width = page.width
+                col_width = page_width / col_count
+                for ci in range(col_count):
+                    bbox = (
+                        ci * col_width,
+                        0,
+                        (ci + 1) * col_width,
+                        page.height,
+                    )
+                    cropped = page.crop(bbox)
+                    texts.append(cropped.extract_text() or "")
+        return texts
 
-    def _parse_single_block(self, block: list[str], *, filename: str) -> ParsedTransaction:
+    def _parse_single_block(
+        self, block: list[str], *, filename: str
+    ) -> ParsedTransaction:
         if len(block) < 12:
             raise RequiredFieldMissingError(
                 f"우리카드 블록 line 수 부족 — got {len(block)}, expected >= 12",
@@ -134,9 +145,9 @@ class WooriRuleBasedParser(BaseParser):
         tx_date = date(y, mo, d)
         tx_time = time(hh, mm, ss)
 
-        # block[2] = 일시불/할부 구분 — 현재 ParsedTransaction 에 저장 필드 없음. Skip.
+        # block[2] = 일시불/할부 — ParsedTransaction 미저장. Skip.
 
-        # ── 4-line 금액 (block[3..6]) — 거래금액 / 봉사료 / 부가세 / 자원순환보증금 ──
+        # ── 4-line 금액 (block[3..6]) ──
         amounts = [self._parse_amount(block[3 + i], position=i) for i in range(4)]
         amount_total, service_charge, vat, recycle_deposit = amounts
         if amount_total <= 0:
@@ -155,14 +166,13 @@ class WooriRuleBasedParser(BaseParser):
                 amount=amount_total,
                 vat=vat,
                 expected_vat=round(amount_total * 10 / 110),
-                reason="line 3 ratio mismatch — 발행 양식 변경 또는 line 순서 오류 가능",
+                reason="line 3 ratio mismatch",
             )
 
         # ── 승인번호 (block[7]) ──
         approval_no: str | None = block[7] if _APPROVAL_NUMBER.match(block[7]) else None
 
-        # ── 가맹점명 + 주소 + 가맹점번호 위치 탐색 ──
-        # 가맹점명 = block[8], 그 다음 1~2 line 이 주소, 9-자리 line 이 가맹점번호.
+        # ── 가맹점명 + 주소 + 가맹점번호 ──
         merchant = block[8]
         merchant_number_idx: int | None = None
         for i in range(9, len(block)):
@@ -175,22 +185,17 @@ class WooriRuleBasedParser(BaseParser):
                 field="가맹점명",
                 tier_attempted="rule_based",
             )
-        # 주소 line 들 (가맹점명 다음 ~ 가맹점번호 직전). 1~2 줄 예상.
         address_lines = block[9:merchant_number_idx]
         if address_lines and not _ADDRESS_PREFIX.match(address_lines[0]):
-            # 광역시/도 시작이 아니라면 발행 양식이 바뀐 것 — 경고만 (raise 안 함).
             _log.info(
                 "woori_address_prefix_unexpected",
                 filename=filename,
                 first_address_line=address_lines[0],
             )
 
-        # 공급가액 = 거래금액 - 봉사료 - 부가세 - 자원순환보증금 (가드 식과 동일).
         supply_amount = amount_total - service_charge - vat - recycle_deposit
-        # AD-4 gt=0 — None 처리 (음수/0 인 경우 저장하지 않음).
         supply_or_none = supply_amount if supply_amount > 0 else None
 
-        # ── Confidence 정책 (ADR-004) ──
         vat_confidence: ConfidenceLabel = "low" if not vat_layout_ok else "medium"
         confidence: dict[str, ConfidenceLabel] = {
             "가맹점명": "high",
@@ -231,3 +236,19 @@ class WooriRuleBasedParser(BaseParser):
                 tier_attempted="rule_based",
             )
         return int(m.group(1).replace(",", ""))
+
+
+def _detect_column_count(text: str) -> int:
+    """페이지 텍스트에서 마커 line 의 토큰 수 → N-up 컬럼 개수.
+
+    예: "국내전용카드 국내전용카드" → 2 컬럼. 마커 미발견 시 1 반환 (단일 컬럼).
+    """
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if _PAGE_HEADER_TIMESTAMP.match(line):
+            continue
+        if _BLOCK_MARKER in line:
+            return max(line.count(_BLOCK_MARKER), 1)
+    return 1

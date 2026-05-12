@@ -29,15 +29,17 @@ class _StubParser(BaseParser):
     def tier(self) -> ParserTier:
         return self._tier
 
-    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
+    async def parse(self, content: bytes, *, filename: str) -> list[ParsedTransaction]:
         # 본 테스트 스위트에서는 호출되지 않음.
-        return ParsedTransaction(
-            가맹점명="stub",
-            거래일=date(2026, 1, 1),
-            금액=1,
-            parser_used=self._tier,
-            field_confidence={"가맹점명": "high"},
-        )
+        return [
+            ParsedTransaction(
+                가맹점명="stub",
+                거래일=date(2026, 1, 1),
+                금액=1,
+                parser_used=self._tier,
+                field_confidence={"가맹점명": "high"},
+            )
+        ]
 
 
 # ── 1) shinhan 헤더 감지 ─────────────────────────────────────────────────────

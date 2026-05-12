@@ -11,7 +11,7 @@ class HanaRuleBasedParser(BaseParser):
     def tier(self) -> ParserTier:
         return "rule_based"
 
-    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
+    async def parse(self, content: bytes, *, filename: str) -> list[ParsedTransaction]:
         raise ParserNotImplementedError(
             "hana rule-based parser is a stub",
             reason="provider detected but rule_based implementation deferred",

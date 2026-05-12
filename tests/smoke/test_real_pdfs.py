@@ -138,7 +138,7 @@ async def test_real_pdf_extracts_required_fields(file_path: Path) -> None:
 
     start = time.monotonic()
     try:
-        result = await router.parse(content, filename=file_path.name)
+        [result] = await router.parse(content, filename=file_path.name)
     except ParseError as e:
         pytest.fail(f"{file_path.name}: {type(e).__name__}: {e}")
     finally:

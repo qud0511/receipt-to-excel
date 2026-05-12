@@ -63,5 +63,9 @@ class BaseParser(ABC):
         """이 파서의 tier 식별자 — ParsedTransaction.parser_used 에 그대로 기록."""
 
     @abstractmethod
-    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
-        """raw bytes → ParsedTransaction. 실패 시 ParseError 또는 서브클래스."""
+    async def parse(self, content: bytes, *, filename: str) -> list[ParsedTransaction]:
+        """raw bytes → 1+ ParsedTransaction list. 실패 시 ParseError 또는 서브클래스.
+
+        ADR-005 §"Parser returns list" — N-up 매출전표(우리카드 등)는 한 파일이 여러 거래.
+        단일 거래도 길이 1 list 로 반환 (일관 계약). 빈 list 금지 — 실패는 ParseError.
+        """

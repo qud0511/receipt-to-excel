@@ -19,7 +19,7 @@ async def test_parses_canonical_shinhan_receipt_pdf() -> None:
         amount=8900,
     )
     parser = ShinhanRuleBasedParser()
-    result = await parser.parse(pdf, filename="shinhan.pdf")
+    [result] = await parser.parse(pdf, filename="shinhan.pdf")
 
     assert result.가맹점명 == "테스트가맹점"
     assert result.거래일 == date(2026, 5, 10)
@@ -33,7 +33,7 @@ async def test_parses_canonical_shinhan_receipt_pdf() -> None:
 async def test_normalizes_card_number_to_canonical_nnnn_format() -> None:
     pdf = make_shinhan_receipt(card_number_masked="1234-56**-****-7890")
     parser = ShinhanRuleBasedParser()
-    result = await parser.parse(pdf, filename="shinhan.pdf")
+    [result] = await parser.parse(pdf, filename="shinhan.pdf")
 
     # AD-2 canonical 형식: NNNN-****-****-NNNN.
     assert result.카드번호_마스킹 == "1234-****-****-7890"
@@ -43,7 +43,7 @@ async def test_normalizes_card_number_to_canonical_nnnn_format() -> None:
 async def test_extracts_business_category_raw() -> None:
     pdf = make_shinhan_receipt(business_category="일반음식점")
     parser = ShinhanRuleBasedParser()
-    result = await parser.parse(pdf, filename="shinhan.pdf")
+    [result] = await parser.parse(pdf, filename="shinhan.pdf")
     assert result.업종 == "일반음식점"
 
 
@@ -51,7 +51,7 @@ async def test_extracts_business_category_raw() -> None:
 async def test_assigns_high_confidence_to_all_required_fields() -> None:
     pdf = make_shinhan_receipt()
     parser = ShinhanRuleBasedParser()
-    result = await parser.parse(pdf, filename="shinhan.pdf")
+    [result] = await parser.parse(pdf, filename="shinhan.pdf")
     for required in ("가맹점명", "거래일", "금액"):
         assert result.field_confidence.get(required) == "high", (
             f"{required} should be high, got {result.field_confidence.get(required)}"
@@ -63,7 +63,7 @@ async def test_returns_medium_confidence_when_optional_field_missing() -> None:
     # 부가세는 결손, 공급가액은 존재.
     pdf = make_shinhan_receipt(vat=None, supply_amount=8091)
     parser = ShinhanRuleBasedParser()
-    result = await parser.parse(pdf, filename="shinhan.pdf")
+    [result] = await parser.parse(pdf, filename="shinhan.pdf")
     # 결손된 부가세 → none.
     assert result.부가세 is None
     assert result.field_confidence.get("부가세") == "none"
@@ -102,7 +102,7 @@ async def test_raises_parse_error_when_required_field_missing() -> None:
 async def test_field_set_does_not_include_card_type_or_client_project() -> None:
     pdf = make_shinhan_receipt()
     parser = ShinhanRuleBasedParser()
-    result = await parser.parse(pdf, filename="shinhan.pdf")
+    [result] = await parser.parse(pdf, filename="shinhan.pdf")
 
     # ParsedTransaction 은 AD-4 raw fields only — Resolver 의 derived 결과는 별개 레이어.
     fields = set(result.model_fields_set)

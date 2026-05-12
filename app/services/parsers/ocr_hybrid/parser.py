@@ -51,7 +51,7 @@ class OCRHybridParser(BaseParser):
     def tier(self) -> ParserTier:
         return "ocr_hybrid"
 
-    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
+    async def parse(self, content: bytes, *, filename: str) -> list[ParsedTransaction]:
         # PII 마스킹은 structlog._pii_filter 가 filename+session_id+idx 동반 시 발동 —
         # session_id/idx 는 호출자(router/job runner) 가 contextvars 로 bind.
         _log.info("ocr_hybrid_parse_start", filename=filename)
@@ -104,10 +104,12 @@ class OCRHybridParser(BaseParser):
 
         # Hallucination 방어 4단: Pydantic strict.
         try:
-            return ParsedTransaction.model_validate(extracted)
+            tx = ParsedTransaction.model_validate(extracted)
         except ValidationError as e:
             raise FormatMismatchError(
                 "ParsedTransaction strict 검증 실패",
                 tier_attempted="ocr_hybrid",
                 reason=str(e),
             ) from e
+        # ADR-005: OCR Hybrid 는 영수증당 1 거래 가정 — 단일 결과 list 1 래핑.
+        return [tx]

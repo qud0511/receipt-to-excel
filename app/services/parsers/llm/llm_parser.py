@@ -57,7 +57,7 @@ class LLMOnlyParser(BaseParser):
     def tier(self) -> ParserTier:
         return "llm"
 
-    async def parse(self, content: bytes, *, filename: str) -> ParsedTransaction:
+    async def parse(self, content: bytes, *, filename: str) -> list[ParsedTransaction]:
         _log.info("llm_only_parse_start", filename=filename)
 
         response = await self._ollama.generate(
@@ -97,10 +97,12 @@ class LLMOnlyParser(BaseParser):
             extracted["카드번호_마스킹"] = sanitize_card_masked(extracted.get("카드번호_마스킹"))
 
         try:
-            return ParsedTransaction.model_validate(extracted)
+            tx = ParsedTransaction.model_validate(extracted)
         except ValidationError as e:
             raise FormatMismatchError(
                 "ParsedTransaction strict 검증 실패",
                 tier_attempted="llm",
                 reason=str(e),
             ) from e
+        # ADR-005: LLM-only 는 단일 결과 list 1 래핑.
+        return [tx]

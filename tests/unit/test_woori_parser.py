@@ -11,6 +11,7 @@ ADR-004 결정 사항 검증:
 from __future__ import annotations
 
 from datetime import date, time
+from pathlib import Path
 
 import pytest
 import structlog
@@ -18,6 +19,10 @@ from app.services.parsers.base import RequiredFieldMissingError
 from app.services.parsers.rule_based.woori import WooriRuleBasedParser
 
 from tests.fixtures.synthetic_pdfs import make_woori_receipt
+
+_REAL_PDFS_DIR = Path(__file__).resolve().parents[1] / "smoke" / "real_pdfs"
+_WOORI_NUP_01 = _REAL_PDFS_DIR / "woori_nup_01.pdf"
+_WOORI_NUP_02 = _REAL_PDFS_DIR / "woori_nup_02.pdf"
 
 
 # ── 1) 정상 합성 PDF — 단일 블록 전 필드 추출 ────────────────────────────────
@@ -32,7 +37,7 @@ async def test_parses_canonical_woori_receipt_single_block() -> None:
         approval_no="76427042",
     )
     parser = WooriRuleBasedParser()
-    result = await parser.parse(pdf, filename="woori_nup_01.pdf")
+    [result] = await parser.parse(pdf, filename="woori_nup_01.pdf")
 
     assert result.가맹점명 == "동백자연에너지"
     assert result.거래일 == date(2026, 4, 13)
@@ -49,7 +54,7 @@ async def test_parses_canonical_woori_receipt_single_block() -> None:
 async def test_card_number_passes_through_canonical() -> None:
     pdf = make_woori_receipt(card_number_masked="9500-99**-****-8751")
     parser = WooriRuleBasedParser()
-    result = await parser.parse(pdf, filename="woori_01.pdf")
+    [result] = await parser.parse(pdf, filename="woori_01.pdf")
     # raw "9500-99**-****-8751" → canonical "9500-****-****-8751" (AD-2).
     assert result.카드번호_마스킹 == "9500-****-****-8751"
 
@@ -59,7 +64,7 @@ async def test_parses_concatenated_datetime_without_space() -> None:
     # 실 우리카드 layout: "yyyy/MM/ddHH:mm:ss" (date 와 time 사이 공백 없음).
     pdf = make_woori_receipt(transaction_dt="2026/04/2517:53:15")
     parser = WooriRuleBasedParser()
-    result = await parser.parse(pdf, filename="woori_01.pdf")
+    [result] = await parser.parse(pdf, filename="woori_01.pdf")
     assert result.거래일 == date(2026, 4, 25)
     assert result.거래시각 == time(17, 53, 15)
 
@@ -68,7 +73,7 @@ async def test_parses_concatenated_datetime_without_space() -> None:
 async def test_amount_layout_validation_passes_for_standard_vat_ratio() -> None:
     pdf = make_woori_receipt(amount=11_000, service_charge=0, vat=1_000, recycle_deposit=0)
     parser = WooriRuleBasedParser()
-    result = await parser.parse(pdf, filename="woori_01.pdf")
+    [result] = await parser.parse(pdf, filename="woori_01.pdf")
     # 부가세 위치 추정 → exact ratio match → medium 유지.
     assert result.field_confidence["부가세"] == "medium"
     assert result.field_confidence["봉사료"] == "low"
@@ -80,7 +85,7 @@ async def test_amount_layout_passes_when_vat_is_zero_exempt_merchant() -> None:
     # 면세 사업자 (쏘카 등): 부가세 0 일 때도 가드는 통과해야 한다.
     pdf = make_woori_receipt(amount=7_200, service_charge=0, vat=0, recycle_deposit=0)
     parser = WooriRuleBasedParser()
-    result = await parser.parse(pdf, filename="woori_nup_02.pdf")
+    [result] = await parser.parse(pdf, filename="woori_nup_02.pdf")
     assert result.금액 == 7_200
     assert result.부가세 == 0
     # 면세 부가세 0 은 정상 — 비율 가드는 통과, 다만 confidence 는 medium 유지.
@@ -93,7 +98,7 @@ async def test_amount_layout_warning_when_vat_ratio_mismatches() -> None:
     pdf = make_woori_receipt(amount=11_000, service_charge=0, vat=5_000, recycle_deposit=0)
     parser = WooriRuleBasedParser()
     with structlog.testing.capture_logs() as logs:
-        result = await parser.parse(pdf, filename="woori_01.pdf")
+        [result] = await parser.parse(pdf, filename="woori_01.pdf")
 
     # confidence 강등 → "low".
     assert result.field_confidence["부가세"] == "low"
@@ -111,7 +116,7 @@ async def test_ignores_page_header_timestamp_line() -> None:
         include_page_header=True,
     )
     parser = WooriRuleBasedParser()
-    result = await parser.parse(pdf, filename="woori_01.pdf")
+    [result] = await parser.parse(pdf, filename="woori_01.pdf")
     assert result.거래일 == date(2026, 4, 13)
     # 페이지 header (2026.05.04) 가 거래일로 오인되면 안 된다.
     assert result.거래일 != date(2026, 5, 4)
@@ -125,7 +130,7 @@ async def test_extracts_merchant_before_korean_administrative_prefix() -> None:
         address_lines=("경기도용인시기흥구석성로 666(동백동)",),
     )
     parser = WooriRuleBasedParser()
-    result = await parser.parse(pdf, filename="woori_01.pdf")
+    [result] = await parser.parse(pdf, filename="woori_01.pdf")
     assert result.가맹점명 == "청정에너지동백점"
 
 
@@ -137,7 +142,7 @@ async def test_handles_two_line_address_for_subdivision_merchants() -> None:
         merchant_number="738469994",
     )
     parser = WooriRuleBasedParser()
-    result = await parser.parse(pdf, filename="woori_01.pdf")
+    [result] = await parser.parse(pdf, filename="woori_01.pdf")
     assert result.가맹점명 == "동백자연에너지"
     # 2 줄 주소 다음 9 자리 가맹점번호 가 정상 detect 돼야 한다.
     # (가맹점번호 자체는 raw schema 에 없지만 잘못된 line 이 가맹점명에 새지 않으면 성공.)
@@ -166,11 +171,36 @@ async def test_raises_required_field_missing_when_no_block_marker() -> None:
         await parser.parse(pdf, filename="woori_corrupt.pdf")
 
 
-# ── 11) Confidence 정책 — 거래금액=high / 부가세=medium / 봉사료·자원순환=low
+# ── 11a) 실 PDF woori_nup_01.pdf → 4 거래 추출 ─────────────────────────────
+@pytest.mark.real_pdf
+@pytest.mark.skipif(not _WOORI_NUP_01.exists(), reason="woori_nup_01.pdf 미존재 (gitignore)")
+async def test_extracts_4_transactions_from_nup_01() -> None:
+    content = _WOORI_NUP_01.read_bytes()
+    parser = WooriRuleBasedParser()
+    results = await parser.parse(content, filename="woori_nup_01.pdf")
+    assert len(results) == 4, f"expected 4 transactions, got {len(results)}"
+    for tx in results:
+        assert tx.카드사 == "woori"
+        assert tx.parser_used == "rule_based"
+        assert tx.금액 > 0
+        assert tx.가맹점명
+
+
+# ── 11b) 실 PDF woori_nup_02.pdf → 5 거래 추출 (페이지 2, 마지막 1 거래) ──
+@pytest.mark.real_pdf
+@pytest.mark.skipif(not _WOORI_NUP_02.exists(), reason="woori_nup_02.pdf 미존재 (gitignore)")
+async def test_extracts_5_transactions_from_nup_02() -> None:
+    content = _WOORI_NUP_02.read_bytes()
+    parser = WooriRuleBasedParser()
+    results = await parser.parse(content, filename="woori_nup_02.pdf")
+    assert len(results) == 5, f"expected 5 transactions, got {len(results)}"
+
+
+# ── 12) Confidence 정책 — 거래금액=high / 부가세=medium / 봉사료·자원순환=low
 async def test_confidence_levels_per_adr_004() -> None:
     pdf = make_woori_receipt(amount=11_000, vat=1_000)
     parser = WooriRuleBasedParser()
-    result = await parser.parse(pdf, filename="woori_01.pdf")
+    [result] = await parser.parse(pdf, filename="woori_01.pdf")
 
     assert result.field_confidence["금액"] == "high"
     assert result.field_confidence["거래일"] == "high"

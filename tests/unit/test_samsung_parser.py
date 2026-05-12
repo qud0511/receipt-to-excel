@@ -19,7 +19,7 @@ async def test_parses_canonical_samsung_receipt_pdf() -> None:
         vat=1000,
     )
     parser = SamsungRuleBasedParser()
-    result = await parser.parse(pdf, filename="samsung.pdf")
+    [result] = await parser.parse(pdf, filename="samsung.pdf")
 
     assert result.가맹점명 == "삼성가맹점"
     assert result.거래일 == date(2026, 5, 10)
@@ -34,7 +34,7 @@ async def test_parses_canonical_samsung_receipt_pdf() -> None:
 async def test_extracts_합계금액_not_이용금액() -> None:
     pdf = make_samsung_receipt(amount_total=11000, usage_amount=10000, vat=1000)
     parser = SamsungRuleBasedParser()
-    result = await parser.parse(pdf, filename="samsung.pdf")
+    [result] = await parser.parse(pdf, filename="samsung.pdf")
     # 금액 (최종 청구액) 은 "이용금액 합계" 에서 와야 — "이용금액" 만 잡혀서 10000 이 되면 회귀.
     assert result.금액 == 11000
     assert result.공급가액 == 10000
@@ -44,7 +44,7 @@ async def test_extracts_합계금액_not_이용금액() -> None:
 async def test_card_number_already_canonical() -> None:
     pdf = make_samsung_receipt(card_number_masked="1234-56**-****-7890")
     parser = SamsungRuleBasedParser()
-    result = await parser.parse(pdf, filename="samsung.pdf")
+    [result] = await parser.parse(pdf, filename="samsung.pdf")
     # AD-2 canonical: NNNN-****-****-NNNN.
     assert result.카드번호_마스킹 == "1234-****-****-7890"
 
@@ -53,7 +53,7 @@ async def test_card_number_already_canonical() -> None:
 async def test_업종_returns_none_with_none_confidence() -> None:
     pdf = make_samsung_receipt()
     parser = SamsungRuleBasedParser()
-    result = await parser.parse(pdf, filename="samsung.pdf")
+    [result] = await parser.parse(pdf, filename="samsung.pdf")
     assert result.업종 is None
     assert result.field_confidence.get("업종") == "none"
 
@@ -62,7 +62,7 @@ async def test_업종_returns_none_with_none_confidence() -> None:
 async def test_거래시각_parsed_from_거래일자_field() -> None:
     pdf = make_samsung_receipt(transaction_dt="2026/12/31 23:59:58")
     parser = SamsungRuleBasedParser()
-    result = await parser.parse(pdf, filename="samsung.pdf")
+    [result] = await parser.parse(pdf, filename="samsung.pdf")
     assert result.거래일 == date(2026, 12, 31)
     assert result.거래시각 == time(23, 59, 58)
 
@@ -74,6 +74,6 @@ async def test_가맹점주소_handles_multiline() -> None:
         address="서울특별시 종로구\n광화문로 1-1\n2층 201호",
     )
     parser = SamsungRuleBasedParser()
-    result = await parser.parse(pdf, filename="samsung.pdf")
+    [result] = await parser.parse(pdf, filename="samsung.pdf")
     # 가맹점명은 multiline 주소 영향 없이 정확 추출.
     assert result.가맹점명 == "삼성가맹점"

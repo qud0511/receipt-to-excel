@@ -190,6 +190,7 @@ async def _sum_time_saved_s_this_year(
     total = 0.0
     ready = False
     for ref, started, completed, txn in rows:
+        # SQL 이 baseline_ref NOT NULL 을 이미 거르나, 의도적 방어 + mypy 가 Optional 을 narrow.
         if ref is None or started is None or completed is None or txn <= 0:
             continue
         ready = True

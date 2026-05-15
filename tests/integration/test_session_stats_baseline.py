@@ -229,3 +229,13 @@ def test_dashboard_not_ready_when_no_ready_sessions(client) -> None:
     body = client.get("/dashboard/summary").json()
     assert body["this_year"]["baseline_ready"] is False
     assert body["this_year"]["time_saved_hours"] == 0
+
+
+def test_dashboard_clamps_negative_total_to_zero(client) -> None:
+    # 평소보다 느린 ready 세션(절약 음수)만 → 총합 음수지만 표시는 0,
+    # 단 baseline_ready 는 True(비교 가능 세션 존재).
+    # ref=30s/tx, 2tx => baseline 60s. 처리 100s => signed = 60 - 100 = -40.
+    _seed_session(client, baseline_ref=30.0, processing_s=100, tx_count=2)
+    body = client.get("/dashboard/summary").json()
+    assert body["this_year"]["baseline_ready"] is True
+    assert body["this_year"]["time_saved_hours"] == 0

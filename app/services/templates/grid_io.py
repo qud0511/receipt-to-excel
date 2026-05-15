@@ -67,3 +67,25 @@ def read_grid(content: bytes) -> dict[str, RawSheet]:
             max_col=ws.max_column,
         )
     return sheets
+
+
+def apply_cell_patches(
+    content: bytes,
+    patches: Sequence[tuple[str, int, int, str | int | float | None]],
+) -> tuple[bytes, int]:
+    """(sheet,row,col,value) 패치 일괄 적용 → (새 워크북 bytes, 갱신 수).
+
+    시트 부재 시 TemplateSheetNotFoundError. 저장은 전체 검증 통과 후 1회 —
+    부분 기록 없음(기존 라우터 동작과 동일: 실패 시 디스크 무변경).
+    """
+    wb = load_workbook(io.BytesIO(content))
+    updated = 0
+    for sheet, row, col, value in patches:
+        if sheet not in wb.sheetnames:
+            raise TemplateSheetNotFoundError(sheet)
+        ws = wb[sheet]
+        ws.cell(row=row, column=col).value = value
+        updated += 1
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue(), updated

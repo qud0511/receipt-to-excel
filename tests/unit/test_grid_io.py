@@ -5,8 +5,6 @@ from __future__ import annotations
 import io
 
 import pytest
-from openpyxl import Workbook
-
 from app.services.templates.grid_io import (
     RawCell,
     RawSheet,
@@ -14,6 +12,7 @@ from app.services.templates.grid_io import (
     apply_cell_patches,
     read_grid,
 )
+from openpyxl import Workbook
 
 
 def _wb_bytes() -> bytes:
@@ -57,3 +56,24 @@ def test_read_grid_skips_none_cells() -> None:
     positions = {(c.row, c.col) for c in next(iter(sheets.values())).cells}
     assert (1, 2) not in positions
     assert positions == {(1, 1), (1, 3)}
+
+
+def test_apply_cell_patches_updates_and_roundtrips() -> None:
+    new_bytes, count = apply_cell_patches(
+        _wb_bytes(),
+        [("Sheet1", 1, 1, "renamed"), ("Sheet2", 1, 1, 9.0)],
+    )
+    assert count == 2
+    sheets = read_grid(new_bytes)
+    s1 = {(c.row, c.col): c.value for c in sheets["Sheet1"].cells}
+    assert s1[(1, 1)] == "renamed"
+    assert s1[(1, 3)] == "=B1+1"  # 미패치 셀·수식 보존
+    s2 = {(c.row, c.col): c.value for c in sheets["Sheet2"].cells}
+    assert s2[(1, 1)] == 9.0
+
+
+def test_apply_cell_patches_unknown_sheet_raises() -> None:
+    with pytest.raises(TemplateSheetNotFoundError) as ei:
+        apply_cell_patches(_wb_bytes(), [("NoSuch", 1, 1, "x")])
+    assert ei.value.sheet == "NoSuch"
+    assert str(ei.value) == "sheet 'NoSuch' not found"

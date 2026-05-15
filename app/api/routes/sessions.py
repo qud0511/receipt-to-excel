@@ -219,6 +219,7 @@ async def _run_job_background(
             )
             upload_session.status = "awaiting_user"
             upload_session.processing_completed_at = datetime.now(UTC)
+            # user_id 는 인증된 잡 — 부재는 불가 상태. 부재 시 ValueError→except→"failed"(loud).
             db_user = await user_repo.get_by_id(db, user_id=user_id)
             apply_session_baseline(
                 db_user,
@@ -238,6 +239,18 @@ async def _run_job_background(
             upload_session.status = "failed"
             upload_session.processing_completed_at = datetime.now(UTC)
             await db.commit()
+
+
+def _elapsed_seconds(started: datetime, completed: datetime) -> float:
+    """경과 초. aiosqlite 가 tz 를 떨궈 naive 로 읽히므로 UTC 로 정규화 후 차감.
+
+    프로젝트는 항상 UTC 기록(CLAUDE.md) — naive=UTC 로 간주. aware 는 불변.
+    """
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    if completed.tzinfo is None:
+        completed = completed.replace(tzinfo=UTC)
+    return (completed - started).total_seconds()
 
 
 def apply_session_baseline(
@@ -260,14 +273,7 @@ def apply_session_baseline(
     completed = getattr(upload_session, "processing_completed_at", None)
     if started is None or completed is None:
         return
-    # SQLite/aiosqlite 는 tz 를 버려 DB 재로딩 시 naive datetime → 갓 찍은
-    # datetime.now(UTC) (aware) 와 빼면 TypeError. 우리는 항상 UTC 로만 기록하므로
-    # naive 는 UTC 로 간주해 정규화 (한쪽만 naive 여도 안전).
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=UTC)
-    if completed.tzinfo is None:
-        completed = completed.replace(tzinfo=UTC)
-    processing_s = (completed - started).total_seconds()
+    processing_s = _elapsed_seconds(started, completed)
     sample = processing_s / tx_count
     prior = db_user.baseline_s_per_tx
     upload_session.baseline_ref_s_per_tx = prior
@@ -813,7 +819,7 @@ async def get_session_stats(
 ) -> dict[str, object]:
     """Result '처리 시간 N분 N초 · 평소 대비 N시간 단축'.
 
-    ADR-010 자료 검증 추천 5: Phase 6 은 baseline 15분/거래 하드코드.
+    Phase 8.7: 사용자 누적 baseline 스냅샷(baseline_ref) 대비. None=학습 중.
     """
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     upload_session = await session_repo.get(
@@ -827,18 +833,29 @@ async def get_session_stats(
         session_id=session_id,
     )
     tx_count = len(txs)
-    baseline_s = tx_count * 15 * 60  # 15분/거래 (사용자 동의 추천 5).
     if upload_session.processing_started_at and upload_session.processing_completed_at:
-        processing_s = (
-            upload_session.processing_completed_at - upload_session.processing_started_at
-        ).total_seconds()
+        processing_s = _elapsed_seconds(
+            upload_session.processing_started_at,
+            upload_session.processing_completed_at,
+        )
     else:
-        processing_s = 0
+        processing_s = 0.0
+
+    ref = upload_session.baseline_ref_s_per_tx
+    baseline_ready = ref is not None
+    if ref is not None:
+        baseline_s: int | None = round(ref * tx_count)
+        time_saved_s: int | None = int(ref * tx_count - processing_s)
+    else:
+        baseline_s = None
+        time_saved_s = None
+
     return {
         "session_id": session_id,
         "processing_time_s": int(processing_s),
+        "baseline_ready": baseline_ready,
         "baseline_s": baseline_s,
-        "time_saved_s": max(0, int(baseline_s - processing_s)),
+        "time_saved_s": time_saved_s,
         "transaction_count": tx_count,
     }
 

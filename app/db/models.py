@@ -15,6 +15,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -60,6 +61,8 @@ class User(_TimestampMixin, Base):
         ),
         nullable=True,
     )
+    # Phase 8.7: 사용자별 처리시간 baseline EMA 누적기(거래당 초). None=아직 없음.
+    baseline_s_per_tx: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 # ── 2. Card ───────────────────────────────────────────────────────────────────
@@ -230,6 +233,12 @@ class UploadSession(_TimestampMixin, Base):
     # Phase 6: 사용자가 명시적으로 "제출" 표시한 시각. NULL = 작성중, NOT NULL = 제출완료.
     # Dashboard "최근 작성한 지출결의서" status 라벨 결정 (UI 캡처: 작성중/제출완료).
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Phase 8.7: baseline EMA 멱등 — 이미 반영된 세션은 재처리해도 재반영 안 함.
+    counted_in_baseline: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    # Phase 8.7: 이 세션이 비교한 baseline 스냅샷(거래당 초). None=콜드스타트 시드(학습 중).
+    baseline_ref_s_per_tx: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     __table_args__ = (
         CheckConstraint(

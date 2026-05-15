@@ -1,16 +1,135 @@
-import { useParams } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { Button } from "@/components/Button";
+import { Icon } from "@/components/Icon";
+import { ReceiptPane } from "@/features/verify/ReceiptPane";
+import { VerifyGrid } from "@/features/verify/VerifyGrid";
+import { FilterChips } from "@/features/verify/FilterChips";
+import { BulkBar } from "@/features/verify/BulkBar";
+import { SummaryBar } from "@/features/verify/SummaryBar";
+import { useTransactions, useBulkTag, usePatchTransaction } from "@/lib/hooks/useTransactions";
+import type { VerifyFilter } from "@/lib/constants";
+import { ApiError } from "@/lib/api/client";
 
 export function VerifyPage() {
-  const { sessionId } = useParams<{ sessionId: string }>();
+  const { sessionId: sidParam } = useParams<{ sessionId: string }>();
+  const sessionId = Number(sidParam);
+  const nav = useNavigate();
+  const [filter, setFilter] = useState<VerifyFilter>("all");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [activeId, setActiveId] = useState<number | null>(null);
+
+  const list = useTransactions(sessionId, filter);
+  const patch = usePatchTransaction(sessionId);
+  const bulk = useBulkTag(sessionId);
+
+  const rows = useMemo(() => list.data?.transactions ?? [], [list.data]);
+  const counts = list.data?.counts ?? { all: 0, missing: 0, review: 0, complete: 0 };
+  const active = useMemo(() => rows.find((r) => r.id === activeId) ?? rows[0] ?? null, [rows, activeId]);
+  const activeIdx = active ? rows.findIndex((r) => r.id === active.id) : -1;
+
+  const sumAmount = rows.reduce((s, r) => s + r.금액, 0);
+  const completed = counts.complete ?? 0;
+
+  function toggleSelect(id: number, next: boolean) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (next) n.add(id);
+      else n.delete(id);
+      return n;
+    });
+  }
+
+  function toggleSelectAll(next: boolean) {
+    if (!next) {
+      setSelected(new Set());
+      return;
+    }
+    setSelected(new Set(rows.map((r) => r.id)));
+  }
+
+  function onPrev() {
+    if (activeIdx > 0) {
+      const prev = rows[activeIdx - 1];
+      if (prev) setActiveId(prev.id);
+    }
+  }
+  function onNext() {
+    if (activeIdx >= 0 && activeIdx < rows.length - 1) {
+      const nxt = rows[activeIdx + 1];
+      if (nxt) setActiveId(nxt.id);
+    }
+  }
+
+  function applyBulk(patchPayload: Parameters<typeof bulk.mutate>[0]["patch"]) {
+    bulk.mutate(
+      { transaction_ids: Array.from(selected), patch: patchPayload },
+      {
+        onSuccess: () => setSelected(new Set()),
+      },
+    );
+  }
+
+  const bulkError = bulk.error instanceof ApiError ? bulk.error.detail || `오류 ${bulk.error.status}` : null;
+
+  if (Number.isNaN(sessionId)) {
+    return <section className="flex-1 p-6">잘못된 세션 ID 입니다.</section>;
+  }
+
   return (
-    <section className="flex-1 overflow-y-auto p-6">
-      <header className="mb-4">
-        <h1 className="text-[20px] font-bold tracking-tight">검수 · 수정</h1>
-        <p className="mt-1 text-[13px] text-text-3">세션 #{sessionId}</p>
-      </header>
-      <p className="text-[13px] text-text-3">
-        split view · 그리드 · TaggingForm · 일괄 적용 — Phase 7.7 채워질 예정
-      </p>
+    <section className="flex h-full flex-1 min-h-0 flex-col">
+      <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2.5">
+        <FilterChips current={filter} counts={counts} onChange={setFilter} />
+        <div className="ml-auto flex items-center gap-2">
+          <Link to={`/result/${sessionId}`}>
+            <Button variant="primary">
+              <Icon name="Download" /> 완료하고 다운로드
+            </Button>
+          </Link>
+        </div>
+      </div>
+      <BulkBar
+        count={selected.size}
+        isPending={bulk.isPending}
+        error={bulkError}
+        onApply={applyBulk}
+        onClear={() => setSelected(new Set())}
+      />
+
+      <div className="flex min-h-0 flex-1">
+        <ReceiptPane
+          sessionId={sessionId}
+          active={active}
+          index={activeIdx < 0 ? 0 : activeIdx}
+          total={rows.length}
+          onPrev={onPrev}
+          onNext={onNext}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          {list.isLoading ? (
+            <div className="grid flex-1 place-items-center text-[13px] text-text-3">불러오는 중...</div>
+          ) : list.error ? (
+            <div className="grid flex-1 place-items-center text-[13px] text-conf-low">
+              거래 list 를 불러오지 못했습니다.
+              <Button variant="ghost" size="sm" className="ml-3" onClick={() => nav(-1)}>
+                돌아가기
+              </Button>
+            </div>
+          ) : (
+            <VerifyGrid
+              rows={rows}
+              selected={selected}
+              activeId={active?.id ?? null}
+              onToggleSelect={toggleSelect}
+              onActivate={(id) => setActiveId(id)}
+              onPatch={(txId, p) => patch.mutate({ txId, patch: p })}
+              onToggleSelectAll={toggleSelectAll}
+            />
+          )}
+        </div>
+      </div>
+
+      <SummaryBar total={rows.length} completed={completed} sumAmount={sumAmount} />
     </section>
   );
 }

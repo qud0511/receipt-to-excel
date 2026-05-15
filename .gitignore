@@ -34,3 +34,14 @@ Thumbs.db
 # Build
 build/
 dist/
+
+# UI 참조 자료 (디자인 의도 시각 자료 — ADR-010/012 분석 후 토큰/구조에 흡수, 로컬 참조용)
+ui_reference_1/
+
+# Frontend (Phase 7) — runtime
+ui/node_modules/
+ui/dist/
+ui/playwright-report/
+ui/test-results/
+ui/.vite/
+ui/coverage/

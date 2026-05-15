@@ -36,10 +36,7 @@ export function ResultPage() {
   const baseName = `${year}_${String(month).padStart(2, "0")}_지출결의서`;
 
   const time = stats.data ? formatDuration(stats.data.processing_time_s) : null;
-  const saved =
-    stats.data && stats.data.avg_baseline_s > 0
-      ? Math.max(0, stats.data.avg_baseline_s - stats.data.processing_time_s)
-      : null;
+  const saved = stats.data ? Math.max(0, stats.data.time_saved_s) : null;
 
   return (
     <section className="flex flex-1 items-start justify-center overflow-y-auto bg-bg p-8">

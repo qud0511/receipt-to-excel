@@ -23,7 +23,13 @@ describe("ResultPage", () => {
   it("4 다운로드 카드 (XLSX / 증빙 PDF / merged PDF / ZIP) 렌더", async () => {
     server.use(
       http.get("/api/sessions/7/stats", () =>
-        HttpResponse.json({ processing_time_s: 138, avg_baseline_s: 50400 }),
+        HttpResponse.json({
+          session_id: 7,
+          processing_time_s: 138,
+          baseline_s: 50400,
+          time_saved_s: 50262,
+          transaction_count: 56,
+        }),
       ),
       http.post("/api/sessions/7/generate", () =>
         HttpResponse.json({

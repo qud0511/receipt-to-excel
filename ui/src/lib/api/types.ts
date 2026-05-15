@@ -84,8 +84,11 @@ export interface GenerateResponse {
 export type ArtifactKind = "xlsx" | "merged_pdf" | "layout_pdf" | "zip";
 
 export interface SessionStats {
+  session_id: number;
   processing_time_s: number;
-  avg_baseline_s: number;
+  baseline_s: number;
+  time_saved_s: number;
+  transaction_count: number;
 }
 
 // ─── Templates ───────────────────────────────────────────────────────────────

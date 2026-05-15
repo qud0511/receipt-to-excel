@@ -134,7 +134,13 @@ export async function mountMocks(page: Page): Promise<void> {
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ processing_time_s: 138, avg_baseline_s: 50400 }),
+      body: JSON.stringify({
+        session_id: 1,
+        processing_time_s: 138,
+        baseline_s: 50400,
+        time_saved_s: 50262,
+        transaction_count: 56,
+      }),
     }),
   );
   await page.route("**/api/sessions/*/generate", (route: Route) =>

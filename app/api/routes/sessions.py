@@ -636,13 +636,18 @@ async def generate_session_artifacts(
 
 
 async def _resolve_template_path(template: Template, request: Request) -> Path:
-    """Template.file_path → 디스크 Path."""
+    """Template.file_path → 디스크 Path.
+
+    DB 저장 시 (templates.create) ``str(template_dir / 'template.xlsx')`` 로 이미
+    storage_root prefix 가 포함된 cwd 기준 상대 경로가 들어옴. 이중 prefix 방지를
+    위해 절대 경로거나 cwd 기준으로 존재하면 그대로 사용.
+    """
     from pathlib import Path as _Path
 
     p = _Path(template.file_path)
-    if p.is_absolute():
+    if p.is_absolute() or p.exists():
         return p
-    # 상대 경로 — storage_root 기준.
+    # storage_root prefix 가 없는 legacy/외부 path 만 prefix 부착.
     settings = request.app.state.settings
     return _Path(settings.storage_root) / template.file_path
 

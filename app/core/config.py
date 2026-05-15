@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = Field(default=20, gt=0, le=1024)
     max_batch_size_mb: int = Field(default=200, gt=0, le=4096)
 
+    # Phase 8.7: 사용자별 baseline EMA 평활 계수. 클수록 최근 세션 가중.
+    baseline_ema_alpha: float = Field(default=0.3, gt=0, le=1)
+
     @model_validator(mode="after")
     def _validate_auth_config(self) -> Settings:
         # REQUIRE_AUTH=true 면 Azure 자격 필수 — 부팅 시점에 차단해

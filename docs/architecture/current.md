@@ -1,11 +1,12 @@
-# Receipt-to-Excel v4 — 현재 구현 아키텍처 (Phase 6.7 완료 시점)
+# Receipt-to-Excel v4 — 현재 구현 아키텍처 (Phase 6.10 완료 시점)
 
-> 본 문서는 **2026-05-12 commit d869caa 시점** 의 실제 동작.
+> 본 문서는 **2026-05-12 commit de0971a 시점** 의 실제 동작.
 > 전체 계획과의 비교는 `planned.md`.
 
-- 문서 갱신: 2026-05-12
-- 누적 commits: 30 (이날)
-- 누적 테스트: 단위 229 + 통합 15 (skip 2) = 244 (skip 2)
+- 문서 갱신: 2026-05-12 (Phase 6.10 e2e 통과 시점)
+- 누적 commits: 34 (이날)
+- 누적 테스트: 단위 229 + 통합 29 (skip 2) = **258 (skip 2)**
+- **Phase 6 백엔드 endpoint 24/24 = 100% 가동** + e2e 통합 1 GREEN
 
 ---
 
@@ -22,12 +23,13 @@
 | PDF Generators | 완료 | merged + layout (R11) |
 | ZIP Bundler | 완료 | 한글 파일명 (UTF-8 0x800) |
 | Sessions API | **10/10 endpoint** | POST/SSE/GET transactions/PATCH/bulk-tag/receipt/preview-xlsx/generate/download/stats |
-| Templates API | **0/9 endpoint** | Phase 6.8 대기 |
-| Dashboard API | **0/1 endpoint** | Phase 6.9 대기 |
-| 자동완성 API | **0/4 endpoint** | Phase 6.9 대기 |
+| Templates API | **9/9 endpoint** | analyze/register/list/grid/cells PATCH/mapping PATCH/meta PATCH/delete/raw |
+| Dashboard API | **1/1 endpoint** | summary (4 KPI + 최근 결의서) |
+| 자동완성 API | **4/4 endpoint** | vendors/projects/attendees/team-groups (Cache-Control: max-age=300) |
+| e2e 통합 | **1/1 케이스** | upload→parse→generate→download→stats→dashboard 전 흐름 |
 | Frontend UI | **0/5 화면** | Phase 7 대기 |
 
-진척률: **백엔드 API ~ 65 % (10/15 endpoint 가동)**, UI 0 %.
+진척률: **백엔드 API 100 % (24/24 endpoint 가동)** + e2e 1 GREEN, UI 0 %.
 
 ---
 
@@ -443,6 +445,29 @@ Phase 7 추가 결정 사항 (ADR-010 자료 검증 추천 7건 중 미반영):
 
 ---
 
-## 13. 한 줄 요약 — planned.md 와의 차이
+## 13. Phase 6.10 시점 갱신 — 백엔드 API 100% + e2e 1 GREEN
 
-> **백엔드 핵심 (인프라 + 파서 + 잡 + Sessions API) 65% 완료**. 단위/통합 244 GREEN, smoke 88.1% 유지. Templates / Dashboard / 자동완성 / UI 는 다음 Phase. 모든 ADR-010 추천 7건 결정 반영, ADR-011 휴리스틱 확장 적용.
+**Phase 6.7 → 6.10 추가 진척**:
+- Phase 6.8: Templates API 9 endpoint (분석 + 등록 + grid + cells PATCH + mapping PATCH + meta PATCH + delete + raw)
+- Phase 6.9: 자동완성 4 endpoint (vendors/projects/attendees/team-groups, Cache-Control: max-age=300) + Dashboard summary
+- Phase 6.10: e2e 통합 1 케이스 — upload → parse → generate → download → dashboard 반영 검증
+
+**누적 endpoint 24/24 = 100%**:
+| 카테고리 | 가동 | 비율 |
+| --- | --- | --- |
+| Sessions | 10/10 | ✓ |
+| Templates | 9/9 | ✓ |
+| Dashboard | 1/1 | ✓ |
+| 자동완성 | 4/4 | ✓ |
+| **합계** | **24/24** | **100%** |
+
+**남은 미구현**:
+- Frontend UI 5 화면 (Phase 7)
+- 메일 발송 (Phase 7+)
+- Templates editor 의 style/병합/줌/formula bar (Phase 8+)
+- Baseline 사용자별 누적 평균 (Phase 8+, 현재는 하드코드 15분/거래)
+- ADR-009 OCR LLM 가맹점명 빈 응답 해소 (별도 트랙)
+
+## 14. 한 줄 요약 — planned.md 와의 차이
+
+> **백엔드 API 100% 완료** (24/24 endpoint 가동). 단위 229 + 통합 29 (skip 2) = 258 GREEN, smoke 88.1% 유지 기대 (별도 회귀 검증 필요). UI 5 화면 (Phase 7) + 메일/누적 baseline (Phase 8+) 만 남음. 모든 ADR-010 추천 7건 결정 반영, ADR-011 휴리스틱 확장 적용.

@@ -28,6 +28,18 @@ npm run dev      # http://localhost:5173 (Vite proxy → backend localhost:8000)
 
 `.env.example` 참조. dev 는 `VITE_REQUIRE_AUTH=false`, prod 는 `true` + MSAL claims 설정.
 
+## dev MSW (백엔드 없이 UI 풀 사용)
+
+`.env.local` 에 `VITE_USE_MOCK=true` 설정 후 `npm run dev`:
+
+```bash
+echo "VITE_USE_MOCK=true" > .env.local
+npm run dev
+# → http://localhost:5173/  (mock 데이터로 5 화면 모두 동작)
+```
+
+운영/실 백엔드 사용 시 `.env.local` 의 `VITE_USE_MOCK=false` 또는 키 제거.
+
 ## 디렉토리
 
 `docs/plan/phase-7-plan.md` §"디렉토리 구조" 참조.

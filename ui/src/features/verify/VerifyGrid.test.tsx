@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VerifyGrid } from "./VerifyGrid";
 import type { TransactionView } from "@/lib/api/types";
@@ -80,15 +80,16 @@ describe("VerifyGrid", () => {
     expect(fn).toHaveBeenCalledWith(1);
   });
 
-  it("빈 거래처 셀에 입력 후 blur 시 onPatch 호출", async () => {
+  it("빈 거래처 셀에 입력 후 Enter 시 onPatch 호출", async () => {
     const fn = vi.fn();
     render(<VerifyGrid rows={rows} selected={new Set()} activeId={null} onPatch={fn} />);
-    // row 2 (id=2) 는 vendor=null — 빈 input 이라 typing 후 변경 감지됨
+    // row 2 (id=2) 는 vendor=null — Autocomplete 셀이 typing 후 Enter 로 commit
     const inputs = screen.getAllByPlaceholderText("거래처 입력");
     const emptyVendorInput = inputs[1]!; // 두 번째 행
+    await userEvent.click(emptyVendorInput);
     await userEvent.type(emptyVendorInput, "한국은행");
-    await userEvent.tab();
-    expect(fn).toHaveBeenCalled();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(fn).toHaveBeenCalled());
     const lastCall = fn.mock.calls.at(-1);
     expect(lastCall?.[0]).toBe(2);
     expect(lastCall?.[1]).toMatchObject({ vendor: "한국은행" });

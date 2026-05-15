@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import type { TransactionView, TransactionPatchRequest } from "@/lib/api/types";
 import { formatDateDot, formatKRWshort } from "@/lib/format";
 import { ConfidenceBadge, type Confidence } from "@/components/ConfidenceBadge";
+import { Autocomplete, type AutocompleteOption } from "@/components/Autocomplete";
 
 interface VerifyGridProps {
   rows: TransactionView[];
@@ -12,6 +13,12 @@ interface VerifyGridProps {
   onActivate?: (txId: number) => void;
   onPatch?: (txId: number, patch: TransactionPatchRequest) => void;
   onToggleSelectAll?: (next: boolean) => void;
+  /** vendor 셀 autocomplete options (useVendors 응답 변환) */
+  vendorOptions?: AutocompleteOption[];
+  /** project 셀 autocomplete options (현 active vendor 의 useProjects 응답) */
+  projectOptions?: AutocompleteOption[];
+  /** project 셀 focus 시 호출 — 부모가 row 의 vendor → vendor_id 매핑 후 projectOptions 갱신 */
+  onProjectFocus?: (txId: number) => void;
 }
 
 const HEAD = [
@@ -88,6 +95,9 @@ export function VerifyGrid({
   onActivate,
   onPatch,
   onToggleSelectAll,
+  vendorOptions = [],
+  projectOptions = [],
+  onProjectFocus,
 }: VerifyGridProps) {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
@@ -170,17 +180,20 @@ export function VerifyGrid({
                   {t.업종 ?? "—"}
                 </td>
                 <td className={cn("h-10 border-b border-r border-border align-middle", isSelected && "bg-brand-soft")}>
-                  <CellInput
+                  <Autocomplete
                     value={t.vendor ?? ""}
                     placeholder="거래처 입력"
+                    options={vendorOptions}
                     onCommit={(v) => onPatch?.(t.id, { vendor: v || null })}
                   />
                 </td>
                 <td className={cn("h-10 border-b border-r border-border align-middle", isSelected && "bg-brand-soft")}>
-                  <CellInput
+                  <Autocomplete
                     value={t.project ?? ""}
                     placeholder="프로젝트"
+                    options={projectOptions}
                     onCommit={(v) => onPatch?.(t.id, { project: v || null })}
+                    onInputChange={() => onProjectFocus?.(t.id)}
                   />
                 </td>
                 <td className={cn("h-10 border-b border-r border-border align-middle", isSelected && "bg-brand-soft")}>

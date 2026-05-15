@@ -8,8 +8,11 @@ import { FilterChips } from "@/features/verify/FilterChips";
 import { BulkBar } from "@/features/verify/BulkBar";
 import { SummaryBar } from "@/features/verify/SummaryBar";
 import { useTransactions, useBulkTag, usePatchTransaction } from "@/lib/hooks/useTransactions";
+import { useVendors } from "@/lib/hooks/useVendors";
+import { useProjects } from "@/lib/hooks/useProjects";
 import type { VerifyFilter } from "@/lib/constants";
 import { ApiError } from "@/lib/api/client";
+import type { AutocompleteOption } from "@/components/Autocomplete";
 
 export function VerifyPage() {
   const { sessionId: sidParam } = useParams<{ sessionId: string }>();
@@ -18,15 +21,52 @@ export function VerifyPage() {
   const [filter, setFilter] = useState<VerifyFilter>("all");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [activeProjectVendorId, setActiveProjectVendorId] = useState<number | null>(null);
 
   const list = useTransactions(sessionId, filter);
   const patch = usePatchTransaction(sessionId);
   const bulk = useBulkTag(sessionId);
+  const vendors = useVendors("");
+  const projects = useProjects(activeProjectVendorId);
 
   const rows = useMemo(() => list.data?.transactions ?? [], [list.data]);
   const counts = list.data?.counts ?? { all: 0, missing: 0, review: 0, complete: 0 };
   const active = useMemo(() => rows.find((r) => r.id === activeId) ?? rows[0] ?? null, [rows, activeId]);
   const activeIdx = active ? rows.findIndex((r) => r.id === active.id) : -1;
+
+  const vendorOptions: AutocompleteOption[] = useMemo(
+    () =>
+      (vendors.data ?? []).map((v, i) => ({
+        value: v.name,
+        recent: i < 3 && v.last_used_at != null,
+        meta: v.usage_count > 0 ? `${v.usage_count}회` : undefined,
+      })),
+    [vendors.data],
+  );
+  const projectOptions: AutocompleteOption[] = useMemo(
+    () =>
+      (projects.data ?? []).map((p, i) => ({
+        value: p.name,
+        recent: i < 3 && p.last_used_at != null,
+        meta: p.usage_count > 0 ? `${p.usage_count}회` : undefined,
+      })),
+    [projects.data],
+  );
+  const vendorIdByName = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const v of vendors.data ?? []) m[v.name] = v.id;
+    return m;
+  }, [vendors.data]);
+
+  function handleProjectFocus(txId: number) {
+    const row = rows.find((r) => r.id === txId);
+    if (!row?.vendor) {
+      setActiveProjectVendorId(null);
+      return;
+    }
+    const id = vendorIdByName[row.vendor];
+    setActiveProjectVendorId(id ?? null);
+  }
 
   const sumAmount = rows.reduce((s, r) => s + r.금액, 0);
   const completed = counts.complete ?? 0;
@@ -124,6 +164,9 @@ export function VerifyPage() {
               onActivate={(id) => setActiveId(id)}
               onPatch={(txId, p) => patch.mutate({ txId, patch: p })}
               onToggleSelectAll={toggleSelectAll}
+              vendorOptions={vendorOptions}
+              projectOptions={projectOptions}
+              onProjectFocus={handleProjectFocus}
             />
           )}
         </div>

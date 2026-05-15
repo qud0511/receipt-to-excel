@@ -109,8 +109,11 @@ def test_full_lifecycle_upload_parse_generate_download(
     assert stats_resp.status_code == 200
     stats = stats_resp.json()
     assert stats["transaction_count"] == 1
-    # baseline 15분/거래 x 1 = 900s.
-    assert stats["baseline_s"] == 900
+    # Phase 8.7: 첫 세션 = 콜드스타트(누적 baseline 없음) → 학습 중, 비교 null.
+    assert stats["baseline_ready"] is False
+    assert stats["baseline_s"] is None
+    assert stats["time_saved_s"] is None
+    assert isinstance(stats["processing_time_s"], int)
 
     # ── Step 7: dashboard 반영 ────────────────────────────────────────────
     dash_resp = client.get("/dashboard/summary")

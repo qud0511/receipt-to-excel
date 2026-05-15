@@ -103,11 +103,16 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def _seed_session(client, *, baseline_ref, processing_s, tx_count, oid="default"):
+def _seed_session(
+    client, *, baseline_ref, processing_s, tx_count, oid="default", with_timestamps=True
+):
     """실 ORM 시드: User(oid) + UploadSession(naive 타임스탬프) + tx_count Transaction.
 
     processing_started/completed_at 을 NAIVE 로 넣어 aiosqlite 재로딩 경로(naive)
     회귀를 의도적으로 자극 — Task-3 회귀 락.
+
+    with_timestamps=False 면 두 타임스탬프 컬럼을 None 으로 남겨
+    get_session_stats 의 processing_s=0.0 분기를 잠근다.
     """
     import asyncio
     from datetime import date as _date
@@ -127,8 +132,10 @@ def _seed_session(client, *, baseline_ref, processing_s, tx_count, oid="default"
                 year_month=year_month,
                 source_filenames=["a.png"],
                 status="awaiting_user",
-                processing_started_at=started,
-                processing_completed_at=started + timedelta(seconds=processing_s),
+                processing_started_at=started if with_timestamps else None,
+                processing_completed_at=(
+                    started + timedelta(seconds=processing_s) if with_timestamps else None
+                ),
                 baseline_ref_s_per_tx=baseline_ref,
                 counted_in_baseline=True,
             )
@@ -190,4 +197,16 @@ def test_stats_ready_negative_when_slower(client) -> None:
 def test_stats_other_user_forbidden(client) -> None:
     sid = _seed_session(client, baseline_ref=60.0, processing_s=100, tx_count=2, oid="owner")
     r = _get_stats_as(client, sid, oid="intruder")
-    assert r.status_code in (403, 404)
+    assert r.status_code == 403
+
+
+def test_stats_missing_timestamps_processing_zero(client) -> None:
+    sid = _seed_session(
+        client, baseline_ref=60.0, processing_s=100, tx_count=2, with_timestamps=False
+    )
+    body = client.get(f"/sessions/{sid}/stats").json()
+    assert body["processing_time_s"] == 0
+    # ref 존재 → baseline_ready True, baseline_s=120, time_saved_s = 120 - 0 = 120
+    assert body["baseline_ready"] is True
+    assert body["baseline_s"] == 120
+    assert body["time_saved_s"] == 120

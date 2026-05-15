@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import io
 
 import pytest
@@ -77,3 +78,33 @@ def test_apply_cell_patches_unknown_sheet_raises() -> None:
         apply_cell_patches(_wb_bytes(), [("NoSuch", 1, 1, "x")])
     assert ei.value.sheet == "NoSuch"
     assert str(ei.value) == "sheet 'NoSuch' not found"
+
+
+def test_read_grid_stringifies_non_primitive_value() -> None:
+    """openpyxl 가 datetime 등 비원시 값 반환 시 str() fallback + is_formula False."""
+    wb = Workbook()
+    ws = wb.active
+    dt = datetime.datetime(2026, 5, 15, 12, 30)
+    ws["A1"] = dt
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    sheets = read_grid(buf.getvalue())
+    cell = next(iter(sheets.values())).cells[0]
+    assert isinstance(cell.value, str)
+    assert cell.value == str(dt)
+    assert cell.is_formula is False
+
+
+def test_apply_cell_patches_invalid_sheet_writes_nothing() -> None:
+    """배치 중 미존재 시트가 있으면 앞선 유효 패치도 기록 안 됨(부분 기록 없음)."""
+    original = _wb_bytes()
+    with pytest.raises(TemplateSheetNotFoundError):
+        apply_cell_patches(
+            original,
+            [("Sheet1", 1, 1, "changed"), ("NoSuch", 1, 1, "x")],
+        )
+    # 원본을 다시 읽어도 첫 패치가 반영돼 있지 않음.
+    sheets = read_grid(original)
+    s1 = {(c.row, c.col): c.value for c in sheets["Sheet1"].cells}
+    assert s1[(1, 1)] == "name"

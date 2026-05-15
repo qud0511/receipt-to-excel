@@ -23,6 +23,27 @@ uv run mypy --strict app/
 uv run ruff check app/
 ```
 
+## 도커 배포 (운영 단일 명령)
+
+```bash
+# 1) 환경변수 준비 (없어도 기본값으로 구동 — REQUIRE_AUTH=false, sqlite)
+cp .env.example .env
+
+# 2) ui(:8080) + backend(:8000 내부) 빌드·기동
+docker compose up -d --build
+
+# 3) (선택) ollama 포함 — LLM 백오프 사용 시
+#    .env 에 LLM_ENABLED=true, OLLAMA_BASE_URL=http://ollama:11434
+docker compose --profile llm up -d --build
+docker compose exec ollama ollama pull qwen2.5vl:7b
+```
+
+- 진입점: `http://localhost:8080` (nginx 가 `/api/` → backend:8000 프록시, SSE 버퍼링 off).
+- backend 호스트 포트는 비공개 — 외부 노출은 ui nginx 경유만.
+- 영속 데이터(sqlite DB + 사용자 FS): named volume `backend-storage` (`/app/storage`).
+- backend 컨테이너는 부팅 시 `alembic upgrade head` 후 uvicorn(단일 워커, SSE 잡 버스 in-process) 기동.
+- OCR(easyocr/docling) 기본 제외 — `INSTALL_OCR=true docker compose build backend` 로 opt-in.
+
 ## Phase 진행 현황
 
 - [ ] Phase 1 — Scaffold + Auth + CI

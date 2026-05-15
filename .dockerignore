@@ -1,0 +1,24 @@
+# 백엔드 이미지 빌드 컨텍스트 제외 — CLAUDE.md "배포" 명시 스펙.
+# PII(storage/·real_pdfs)·시크릿(.env)·로컬 캐시가 이미지에 유입되지 않게 차단.
+.git
+.venv
+__pycache__
+.env
+storage/
+tests/smoke/real_pdfs/
+tests/smoke/results/
+old/
+*.md
+
+# 빌드 컨텍스트 축소 (전송 용량·캐시 무효화 최소화) — 위 필수 집합에 추가.
+.github
+.pytest_cache
+.mypy_cache
+.ruff_cache
+ui/node_modules
+ui/dist
+ui/.vite
+*.pyc
+.dockerignore
+Dockerfile
+docker-compose.yml

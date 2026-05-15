@@ -1,0 +1,59 @@
+# Receipt-to-Excel v4 — 운영 배포 단일 명령.
+#   docker compose up -d --build              # ui(:8080) + backend(:8000 내부)
+#   docker compose --profile llm up -d --build # + ollama(:11434 내부)
+#
+# 환경 변수는 리포지토리 루트 .env(.gitignore) 단일 출처. 없으면 아래 기본값으로 구동.
+# 키 집합은 .env.example 와 일치(CLAUDE.md "시크릿"). .env 는 이미지에 복사되지 않고
+# (.dockerignore) compose 가 ${VAR} 보간 → 컨테이너 env 주입 → core/config.Settings 가 읽음.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # OCR heavy extra opt-in: `INSTALL_OCR=true docker compose build backend`
+        INSTALL_OCR: ${INSTALL_OCR:-false}
+    # 서비스명 'backend' 고정 — ui/nginx.conf 가 http://backend:8000/ 로 프록시.
+    # 호스트 포트 미공개: 외부 노출은 ui nginx 경유만(공격면 축소).
+    environment:
+      REQUIRE_AUTH: ${REQUIRE_AUTH:-false}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:///storage/app.db}
+      STORAGE_ROOT: ${STORAGE_ROOT:-storage}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5vl:7b}
+      LLM_ENABLED: ${LLM_ENABLED:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-20}
+      MAX_BATCH_SIZE_MB: ${MAX_BATCH_SIZE_MB:-200}
+    volumes:
+      # PII 영속 — DB(sqlite) + 사용자별 FS 모두 /app/storage 하위.
+      - backend-storage:/app/storage
+    restart: unless-stopped
+    # Dockerfile HEALTHCHECK(/healthz) 를 compose 가 그대로 사용 → ui 의 depends_on 게이트.
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    ports:
+      - "${UI_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 선택 — `--profile llm` 일 때만 기동. backend 는 OLLAMA_BASE_URL=http://ollama:11434 로 접근.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  backend-storage:
+  ollama-models:

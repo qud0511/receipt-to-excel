@@ -34,7 +34,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.security import UploadGuard, UploadValidationError
-from app.db.models import GeneratedArtifact, Template, Transaction
+from app.db.models import (
+    GeneratedArtifact,
+    Template,
+    Transaction,
+    UploadSession,
+    User,
+)
 from app.db.repositories import (
     expense_record_repo,
     generated_artifact_repo,
@@ -60,6 +66,7 @@ from app.services.generators.xlsx_writer import (
     write_workbook,
 )
 from app.services.generators.zip_bundler import create_zip, generate_zip_filename
+from app.services.stats.baseline import next_baseline
 from app.services.templates.analyzer import analyze_workbook
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -212,6 +219,13 @@ async def _run_job_background(
             )
             upload_session.status = "awaiting_user"
             upload_session.processing_completed_at = datetime.now(UTC)
+            db_user = await user_repo.get_by_id(db, user_id=user_id)
+            apply_session_baseline(
+                db_user,
+                upload_session,
+                tx_count=len(tx_rows),
+                alpha=request.app.state.settings.baseline_ema_alpha,
+            )
             await db.commit()
     except Exception:  # JobRunnerError 포함.
         sessionmaker = request.app.state.db_sessionmaker
@@ -224,6 +238,41 @@ async def _run_job_background(
             upload_session.status = "failed"
             upload_session.processing_completed_at = datetime.now(UTC)
             await db.commit()
+
+
+def apply_session_baseline(
+    db_user: User,
+    upload_session: UploadSession,
+    *,
+    tx_count: int,
+    alpha: float,
+) -> None:
+    """파싱 완료 세션 처리시간으로 사용자 baseline EMA 를 멱등 갱신.
+
+    이미 반영/빈 세션/타임스탬프 누락 시 무변경. 호출 측이 동일 트랜잭션 commit.
+    db_user/upload_session 은 ORM 인스턴스(덕타이핑).
+    """
+    if getattr(upload_session, "counted_in_baseline", False):
+        return
+    if tx_count <= 0:
+        return
+    started = getattr(upload_session, "processing_started_at", None)
+    completed = getattr(upload_session, "processing_completed_at", None)
+    if started is None or completed is None:
+        return
+    # SQLite/aiosqlite 는 tz 를 버려 DB 재로딩 시 naive datetime → 갓 찍은
+    # datetime.now(UTC) (aware) 와 빼면 TypeError. 우리는 항상 UTC 로만 기록하므로
+    # naive 는 UTC 로 간주해 정규화 (한쪽만 naive 여도 안전).
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    if completed.tzinfo is None:
+        completed = completed.replace(tzinfo=UTC)
+    processing_s = (completed - started).total_seconds()
+    sample = processing_s / tx_count
+    prior = db_user.baseline_s_per_tx
+    upload_session.baseline_ref_s_per_tx = prior
+    db_user.baseline_s_per_tx = next_baseline(prior, sample, alpha=alpha)
+    upload_session.counted_in_baseline = True
 
 
 def _parsed_to_db_row(

@@ -38,3 +38,11 @@ async def get_or_create_by_oid(
     db.add(obj)
     await db.flush()
     return obj
+
+
+async def get_by_id(db: AsyncSession, *, user_id: int) -> User:
+    """PK 로 User 조회. 잡 컨텍스트(user_id 만 보유)에서 baseline 갱신용."""
+    user = await db.get(User, user_id)
+    if user is None:
+        raise ValueError(f"user {user_id} not found")
+    return user

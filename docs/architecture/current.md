@@ -1,12 +1,15 @@
-# Receipt-to-Excel v4 — 현재 구현 아키텍처 (Phase 6.10 완료 시점)
+# Receipt-to-Excel v4 — 현재 구현 아키텍처 (Phase 7 완료 시점)
 
-> 본 문서는 **2026-05-12 commit de0971a 시점** 의 실제 동작.
+> 본 문서는 **2026-05-15 commit ad3735f 시점** 의 실제 동작.
 > 전체 계획과의 비교는 `planned.md`.
 
-- 문서 갱신: 2026-05-12 (Phase 6.10 e2e 통과 시점)
-- 누적 commits: 34 (이날)
-- 누적 테스트: 단위 229 + 통합 29 (skip 2) = **258 (skip 2)**
-- **Phase 6 백엔드 endpoint 24/24 = 100% 가동** + e2e 통합 1 GREEN
+- 문서 갱신: 2026-05-15 (Phase 7 완료 시점)
+- 누적 commits (Phase 7 신규): 12 (7.0~7.10)
+- 누적 테스트:
+  - 백엔드 단위 229 + 통합 29 (skip 2) = 258
+  - 프런트 단위 (Vitest) **+119** + e2e (Playwright) **+9 spec**
+  - smoke (real_pdf) 42 = **428 (skip 2)** 총합
+- **백엔드 endpoint 24/24 = 100% 가동** + **프런트 5/5 화면 = 100% 가동**
 
 ---
 
@@ -26,10 +29,13 @@
 | Templates API | **9/9 endpoint** | analyze/register/list/grid/cells PATCH/mapping PATCH/meta PATCH/delete/raw |
 | Dashboard API | **1/1 endpoint** | summary (4 KPI + 최근 결의서) |
 | 자동완성 API | **4/4 endpoint** | vendors/projects/attendees/team-groups (Cache-Control: max-age=300) |
-| e2e 통합 | **1/1 케이스** | upload→parse→generate→download→stats→dashboard 전 흐름 |
-| Frontend UI | **0/5 화면** | Phase 7 대기 |
+| e2e 통합 (백엔드) | **1/1 케이스** | upload→parse→generate→download→stats→dashboard 전 흐름 |
+| **Frontend UI** | **5/5 화면** | Dashboard / Upload / Verify / Result / Templates (Phase 7) |
+| Frontend 단위 (Vitest) | **119 GREEN** | 7 컴포넌트 + 5 화면 + hooks + API + SSE |
+| Frontend e2e (Playwright) | **9 spec** | 5 화면 골든 path (CI 환경 가정) |
 
-진척률: **백엔드 API 100 % (24/24 endpoint 가동)** + e2e 1 GREEN, UI 0 %.
+진척률: **백엔드 API 100% + 프런트 5/5 화면 100%**. Phase 8+ 후속:
+메일 발송 / Templates 풀 편집 / 셀 autocomplete dropdown / dev MSW / 시각 회귀.
 
 ---
 
@@ -470,4 +476,31 @@ Phase 7 추가 결정 사항 (ADR-010 자료 검증 추천 7건 중 미반영):
 
 ## 14. 한 줄 요약 — planned.md 와의 차이
 
-> **백엔드 API 100% 완료** (24/24 endpoint 가동). 단위 229 + 통합 29 (skip 2) = 258 GREEN, smoke 88.1% 유지 기대 (별도 회귀 검증 필요). UI 5 화면 (Phase 7) + 메일/누적 baseline (Phase 8+) 만 남음. 모든 ADR-010 추천 7건 결정 반영, ADR-011 휴리스틱 확장 적용.
+> **백엔드 API + 프런트 UI 100% 완료** (Phase 1~7). 누적 428 GREEN (백엔드 258 + 프런트
+> 119 단위 + e2e 9 spec + smoke 42). 5 화면 Dashboard/Upload/Verify/Result/Templates,
+> 24 endpoint 모두 TanStack 또는 mutation hook 으로 wrap, SSE EventSource 정상,
+> MSAL.js SPA flow 코드, Multi-stage Docker + nginx (SPA fallback + SSE proxy +
+> CSP/security headers). Phase 8+ 후속: 메일 발송 / Templates 풀 편집 / 셀
+> autocomplete dropdown / dev MSW worker / 시각 회귀 / Lighthouse / 누적 baseline.
+
+## 15. Phase 7 — Frontend 추가 컴포넌트
+
+```
+[Browser SPA — Vite + React 18 + TS + Tailwind + shadcn/ui]
+    ↓ /api proxy (Vite dev / nginx prod)
+[FastAPI 24 endpoint]
+    ...
+```
+
+| 영역 | 위치 | 비고 |
+| --- | --- | --- |
+| Setup | `ui/{package.json, vite.config.ts, tsconfig.json, tailwind.config.ts, vitest.config.ts, playwright.config.ts, .eslintrc.cjs, .prettierrc, components.json}` | shadcn CLI 호환 |
+| 디자인 토큰 | `ui/src/styles/{tokens.css, globals.css}` + Tailwind config | OKLCH 14 토큰 |
+| 공통 컴포넌트 | `ui/src/components/{Icon,Button,Chip,StatusPill,PurposeTile,SuggestChip,ConfidenceBadge,TopNav,StepIndicator}.tsx` | shadcn-style 카탈로그 |
+| API 클라이언트 | `ui/src/lib/api/{client,sessions,templates,dashboard,autocomplete,types}.ts` | X-Correlation-Id + 24 endpoint typed |
+| SSE | `ui/src/lib/sse.ts` | EventSource + done/error 자동 close |
+| Auth | `ui/src/lib/auth.ts` | MSAL.js PCA singleton |
+| TanStack | `ui/src/lib/{query,hooks/*}.ts` | staleTime 차등 + optimistic + rollback |
+| 5 화면 | `ui/src/pages/*Page.tsx` + `ui/src/features/{dashboard,upload,verify,result,templates}/*` | Dashboard / Upload / Verify / Result / Templates |
+| Test | `ui/src/**/*.test.tsx` + `ui/e2e/*.spec.ts` | Vitest+MSW 119 단위 / Playwright 9 e2e |
+| Deploy | `ui/{Dockerfile, nginx.conf, .dockerignore}` | Multi-stage non-root + SPA fallback + SSE proxy + CSP |

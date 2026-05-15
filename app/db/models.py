@@ -229,9 +229,7 @@ class UploadSession(_TimestampMixin, Base):
     )
     # Phase 6: 사용자가 명시적으로 "제출" 표시한 시각. NULL = 작성중, NOT NULL = 제출완료.
     # Dashboard "최근 작성한 지출결의서" status 라벨 결정 (UI 캡처: 작성중/제출완료).
-    submitted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint(

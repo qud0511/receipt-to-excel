@@ -18,9 +18,7 @@ from pathlib import Path
 import pytest
 from app.services.templates.analyzer import analyze_workbook
 
-_REAL_TEMPLATES_DIR = (
-    Path(__file__).resolve().parents[1] / "smoke" / "real_templates"
-)
+_REAL_TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "smoke" / "real_templates"
 _REAL_TEMPLATE_FILES = (
     _REAL_TEMPLATES_DIR / "expense_2025_12_a.xlsx",
     _REAL_TEMPLATES_DIR / "expense_2026_03_a.xlsx",
@@ -71,7 +69,5 @@ def test_real_xlsx_round_trip_via_template_analyzer(path: Path) -> None:
 
         # category mode 가 활성이면 식대 또는 기타비용 매핑 보유.
         if cfg.mode in ("category", "hybrid"):
-            has_food_or_etc = (
-                "식대" in cfg.category_cols or "기타비용" in cfg.category_cols
-            )
+            has_food_or_etc = "식대" in cfg.category_cols or "기타비용" in cfg.category_cols
             assert has_food_or_etc, f"{name}: category_cols={cfg.category_cols}"

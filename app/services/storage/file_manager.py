@@ -37,18 +37,14 @@ class FileSystemManager:
             path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def session_upload_dir(
-        self, *, user_oid: str, session_id: str, create: bool = False
-    ) -> Path:
+    def session_upload_dir(self, *, user_oid: str, session_id: str, create: bool = False) -> Path:
         """업로드 파일 디스크 저장 위치."""
         path = self.user_dir(user_oid=user_oid) / "sessions" / session_id / "uploads"
         if create:
             path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def session_output_dir(
-        self, *, user_oid: str, session_id: str, create: bool = False
-    ) -> Path:
+    def session_output_dir(self, *, user_oid: str, session_id: str, create: bool = False) -> Path:
         """생성 artifact (xlsx/pdf/zip) 저장 위치."""
         path = self.user_dir(user_oid=user_oid) / "sessions" / session_id / "outputs"
         if create:
@@ -57,16 +53,9 @@ class FileSystemManager:
 
     def template_path(self, *, user_oid: str, template_id: str) -> Path:
         """등록된 양식 원본 xlsx 경로 — 파일명 fixed ``template.xlsx``."""
-        return (
-            self.user_dir(user_oid=user_oid)
-            / "templates"
-            / template_id
-            / "template.xlsx"
-        )
+        return self.user_dir(user_oid=user_oid) / "templates" / template_id / "template.xlsx"
 
-    def template_dir(
-        self, *, user_oid: str, template_id: str, create: bool = False
-    ) -> Path:
+    def template_dir(self, *, user_oid: str, template_id: str, create: bool = False) -> Path:
         """Template 디렉토리 자체 (파일 외 메타 cache 등 향후 확장 대비)."""
         path = self.user_dir(user_oid=user_oid) / "templates" / template_id
         if create:

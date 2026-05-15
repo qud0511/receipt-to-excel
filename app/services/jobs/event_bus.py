@@ -14,14 +14,14 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 JobStage = Literal[
-    "uploaded",       # 업로드 수신
-    "ocr",            # Docling OCR 진행 중
-    "llm",            # OCR Hybrid LLM 호출 중
-    "rule_based",     # rule_based parser 실행 중
-    "resolved",       # CardTypeResolver / category 결정 완료
+    "uploaded",  # 업로드 수신
+    "ocr",  # Docling OCR 진행 중
+    "llm",  # OCR Hybrid LLM 호출 중
+    "rule_based",  # rule_based parser 실행 중
+    "resolved",  # CardTypeResolver / category 결정 완료
     "vendor_failed",  # 거래처 추정 실패 (UI "거래처 추정 실패" 메시지)
-    "done",           # 잡 완료
-    "error",          # 잡 실패 (file 단위)
+    "done",  # 잡 완료
+    "error",  # 잡 실패 (file 단위)
 ]
 
 

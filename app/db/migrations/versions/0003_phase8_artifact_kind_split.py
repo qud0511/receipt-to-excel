@@ -24,9 +24,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "UPDATE generated_artifact SET artifact_type='layout_pdf' WHERE artifact_type='pdf'"
-    )
+    op.execute("UPDATE generated_artifact SET artifact_type='layout_pdf' WHERE artifact_type='pdf'")
     with op.batch_alter_table("generated_artifact") as batch_op:
         batch_op.drop_constraint("ck_generated_artifact_type", type_="check")
         batch_op.alter_column(
@@ -41,12 +39,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "DELETE FROM generated_artifact WHERE artifact_type='merged_pdf'"
-    )
-    op.execute(
-        "UPDATE generated_artifact SET artifact_type='pdf' WHERE artifact_type='layout_pdf'"
-    )
+    op.execute("DELETE FROM generated_artifact WHERE artifact_type='merged_pdf'")
+    op.execute("UPDATE generated_artifact SET artifact_type='pdf' WHERE artifact_type='layout_pdf'")
     with op.batch_alter_table("generated_artifact") as batch_op:
         batch_op.drop_constraint("ck_generated_artifact_type", type_="check")
         batch_op.alter_column(

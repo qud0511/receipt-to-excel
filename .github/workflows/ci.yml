@@ -9,9 +9,14 @@ on:
 permissions:
   contents: read
 
+# 같은 ref 의 이전 실행은 취소 — CI 분 절약.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  quality:
-    name: pytest + mypy + ruff + pip-audit
+  backend:
+    name: backend — ruff + mypy + import-linter + pytest + pip-audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -42,8 +47,135 @@ jobs:
       - name: mypy --strict
         run: uv run mypy --strict app/
 
+      - name: import-linter (단방향 의존 차단 게이트)
+        run: uv run lint-imports
+
       - name: pytest (excluding real_pdf smoke)
         run: uv run pytest -m "not real_pdf"
 
       - name: pip-audit --strict
         run: uv run pip-audit --strict
+
+  ui:
+    name: ui — eslint + tsc + vitest + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies (ci)
+        run: npm ci --no-audit --no-fund
+
+      - name: eslint (max-warnings 0)
+        run: npm run lint
+
+      - name: typecheck (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: vitest (unit)
+        run: npm run test
+
+      - name: production build
+        run: npm run build
+
+  e2e:
+    name: ui — playwright e2e (MSW mock, no backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies (ci)
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Playwright chromium
+        run: npm run e2e:install
+
+      # playwright.config.ts 의 webServer 가 build && preview 를 자동 기동.
+      # e2e 는 _mocks.ts(MSW) 사용 — 백엔드 불필요.
+      - name: playwright test
+        run: npm run e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: ui/playwright-report/
+          retention-days: 7
+
+  docker-build:
+    name: docker — backend + ui 이미지 빌드 + compose 검증
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: r2x-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build ui image (multi-stage)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./ui
+          file: ./ui/Dockerfile
+          push: false
+          load: true
+          tags: r2x-ui:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Validate docker-compose.yml
+        run: docker compose config -q
+
+      - name: Smoke — backend 부팅 + /healthz (alembic upgrade 포함)
+        run: |
+          docker run -d --name r2x-be -p 8000:8000 r2x-backend:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/healthz >/dev/null 2>&1; then
+              echo "healthz OK"; exit 0
+            fi
+            sleep 2
+          done
+          echo "healthz FAILED — container logs:"; docker logs r2x-be; exit 1
+
+      - name: Teardown
+        if: always()
+        run: docker rm -f r2x-be 2>/dev/null || true

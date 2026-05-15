@@ -126,7 +126,9 @@ async def create_session(
 
     # 디스크 저장 — uuid 파일명 (보안). original_filename → disk_filename 매핑 보관.
     upload_dir = file_manager.session_upload_dir(
-        user_oid=user.oid, session_id=str(session_id), create=True,
+        user_oid=user.oid,
+        session_id=str(session_id),
+        create=True,
     )
     receipts_payload: list[tuple[str, bytes]] = []
     card_payload: list[tuple[str, bytes]] = []
@@ -192,15 +194,21 @@ async def _run_job_background(
                     disk_filename=disk_map.get(source, ""),
                 )
                 for parsed, source in zip(
-                    result.transactions, result.source_filenames, strict=True,
+                    result.transactions,
+                    result.source_filenames,
+                    strict=True,
                 )
             ]
             if tx_rows:
                 await transaction_repo.bulk_create(
-                    db, user_id=user_id, transactions=tx_rows,
+                    db,
+                    user_id=user_id,
+                    transactions=tx_rows,
                 )
             upload_session = await session_repo.get(
-                db, user_id=user_id, session_id=session_id,
+                db,
+                user_id=user_id,
+                session_id=session_id,
             )
             upload_session.status = "awaiting_user"
             upload_session.processing_completed_at = datetime.now(UTC)
@@ -209,7 +217,9 @@ async def _run_job_background(
         sessionmaker = request.app.state.db_sessionmaker
         async with sessionmaker() as db:
             upload_session = await session_repo.get(
-                db, user_id=user_id, session_id=session_id,
+                db,
+                user_id=user_id,
+                session_id=session_id,
             )
             upload_session.status = "failed"
             upload_session.processing_completed_at = datetime.now(UTC)
@@ -269,9 +279,7 @@ def _compute_confidence_score(field_confidence: dict[str, str]) -> float:
     return sum(scores) / len(scores)
 
 
-def _classify_row_status(
-    tx: Transaction, expense: object | None
-) -> str:
+def _classify_row_status(tx: Transaction, expense: object | None) -> str:
     """Verify Filter chips 분류 (ADR-010 B-9): missing / review / complete."""
     if not tx.merchant_name or not tx.transaction_date or tx.amount <= 0:
         return "missing"
@@ -297,14 +305,18 @@ async def list_transactions(
     await session_repo.get(db, user_id=db_user.id, session_id=session_id)
 
     txs = await transaction_repo.list_for_session(
-        db, user_id=db_user.id, session_id=session_id,
+        db,
+        user_id=db_user.id,
+        session_id=session_id,
     )
 
     counts = {"all": len(txs), "missing": 0, "review": 0, "complete": 0}
     views: list[TransactionView] = []
     for tx in txs:
         expense = await expense_record_repo.get_by_transaction(
-            db, user_id=db_user.id, transaction_id=tx.id,
+            db,
+            user_id=db_user.id,
+            transaction_id=tx.id,
         )
         row_status = _classify_row_status(tx, expense)
         counts[row_status] += 1
@@ -353,7 +365,10 @@ async def patch_transaction(
 
     patch = body.model_dump(exclude_none=False)
     updated = await expense_record_repo.upsert_user_input(
-        db, user_id=db_user.id, transaction_id=tx_id, patch=patch,
+        db,
+        user_id=db_user.id,
+        transaction_id=tx_id,
+        patch=patch,
     )
     # commit 전에 값을 캡처 — expire_on_commit 으로 인한 lazy load 회피.
     response_payload: dict[str, object] = {
@@ -379,16 +394,22 @@ async def preview_session_xlsx(
     """
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     upload_session = await session_repo.get(
-        db, user_id=db_user.id, session_id=session_id,
+        db,
+        user_id=db_user.id,
+        session_id=session_id,
     )
     txs = await transaction_repo.list_for_session(
-        db, user_id=db_user.id, session_id=session_id,
+        db,
+        user_id=db_user.id,
+        session_id=session_id,
     )
 
     rows: list[dict[str, object]] = []
     for tx in txs:
         expense = await expense_record_repo.get_by_transaction(
-            db, user_id=db_user.id, transaction_id=tx.id,
+            db,
+            user_id=db_user.id,
+            transaction_id=tx.id,
         )
         rows.append(
             {
@@ -432,12 +453,14 @@ async def get_transaction_receipt(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
     if not tx.source_filename:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="original receipt unavailable",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="original receipt unavailable",
         )
 
     file_manager = request.app.state.file_manager
     upload_dir = file_manager.session_upload_dir(
-        user_oid=user.oid, session_id=str(session_id),
+        user_oid=user.oid,
+        session_id=str(session_id),
     )
     target = upload_dir / tx.source_filename
     # path traversal 차단 — 정규화 후 upload_dir 의 prefix 안에 있는지.
@@ -476,7 +499,10 @@ async def bulk_tag_transactions(
         for tx_id in body.transaction_ids:
             try:
                 await expense_record_repo.upsert_user_input(
-                    db, user_id=db_user.id, transaction_id=tx_id, patch=patch,
+                    db,
+                    user_id=db_user.id,
+                    transaction_id=tx_id,
+                    patch=patch,
                 )
                 updated_count += 1
             except Exception:
@@ -511,7 +537,9 @@ async def generate_session_artifacts(
     """
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     upload_session = await session_repo.get(
-        db, user_id=db_user.id, session_id=session_id,
+        db,
+        user_id=db_user.id,
+        session_id=session_id,
     )
     if upload_session.template_id is None:
         raise HTTPException(
@@ -519,16 +547,22 @@ async def generate_session_artifacts(
             detail="template_id 미선택 — generate 불가",
         )
     template = await template_repo.get(
-        db, user_id=db_user.id, template_id=upload_session.template_id,
+        db,
+        user_id=db_user.id,
+        template_id=upload_session.template_id,
     )
 
     txs = await transaction_repo.list_for_session(
-        db, user_id=db_user.id, session_id=session_id,
+        db,
+        user_id=db_user.id,
+        session_id=session_id,
     )
     rows: list[dict[str, object]] = []
     for tx in txs:
         expense = await expense_record_repo.get_by_transaction(
-            db, user_id=db_user.id, transaction_id=tx.id,
+            db,
+            user_id=db_user.id,
+            transaction_id=tx.id,
         )
         rows.append(
             {
@@ -556,7 +590,11 @@ async def generate_session_artifacts(
         )
     sheet_configs = analyze_workbook(template_bytes)
     xlsx_bytes, xlsx_filename_default = write_workbook(
-        template_bytes, sheet_configs, rows, year=year, month=month,
+        template_bytes,
+        sheet_configs,
+        rows,
+        year=year,
+        month=month,
     )
     # 사용자명 보강: R12 + user_name.
     xlsx_filename = (
@@ -569,7 +607,8 @@ async def generate_session_artifacts(
     # PNG/JPG tx → layout_pdf (모아찍기), PDF tx → merged_pdf (원본 페이지 병합, 거래일 ASC).
     # source_file_path 는 disk filename (relative) 또는 절대경로 둘 다 허용.
     upload_dir = request.app.state.file_manager.session_upload_dir(
-        user_oid=user.oid, session_id=str(session_id),
+        user_oid=user.oid,
+        session_id=str(session_id),
     )
     layout_images: list[bytes] = []
     merged_items: list[tuple[date, bytes]] = []
@@ -603,7 +642,9 @@ async def generate_session_artifacts(
 
     # FS 영속.
     output_dir = request.app.state.file_manager.session_output_dir(
-        user_oid=user.oid, session_id=str(session_id), create=True,
+        user_oid=user.oid,
+        session_id=str(session_id),
+        create=True,
     )
     (output_dir / xlsx_filename).write_bytes(xlsx_bytes)
     if layout_bytes:
@@ -656,7 +697,10 @@ async def generate_session_artifacts(
         ),
     )
     await generated_artifact_repo.replace_for_session(
-        db, user_id=db_user.id, session_id=session_id, artifacts=artifacts,
+        db,
+        user_id=db_user.id,
+        session_id=session_id,
+        artifacts=artifacts,
     )
     payload: list[dict[str, object]] = [
         {"kind": a.artifact_type, "filename": a.display_filename, "size": a.size_bytes}
@@ -699,7 +743,10 @@ async def download_session_artifact(
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     await session_repo.get(db, user_id=db_user.id, session_id=session_id)
     artifact = await generated_artifact_repo.get_by_kind(
-        db, user_id=db_user.id, session_id=session_id, artifact_type=kind,
+        db,
+        user_id=db_user.id,
+        session_id=session_id,
+        artifact_type=kind,
     )
     from pathlib import Path as _Path
 
@@ -721,17 +768,20 @@ async def get_session_stats(
     """
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     upload_session = await session_repo.get(
-        db, user_id=db_user.id, session_id=session_id,
+        db,
+        user_id=db_user.id,
+        session_id=session_id,
     )
     txs = await transaction_repo.list_for_session(
-        db, user_id=db_user.id, session_id=session_id,
+        db,
+        user_id=db_user.id,
+        session_id=session_id,
     )
     tx_count = len(txs)
     baseline_s = tx_count * 15 * 60  # 15분/거래 (사용자 동의 추천 5).
     if upload_session.processing_started_at and upload_session.processing_completed_at:
         processing_s = (
-            upload_session.processing_completed_at
-            - upload_session.processing_started_at
+            upload_session.processing_completed_at - upload_session.processing_started_at
         ).total_seconds()
     else:
         processing_s = 0

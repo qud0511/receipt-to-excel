@@ -87,8 +87,13 @@ def test_register_template_then_list(client: TestClient, tmp_path: Path) -> None
 
     # FS 저장 확인.
     template_path = (
-        tmp_path / "storage" / "users" / "default" / "templates"
-        / str(template_id) / "template.xlsx"
+        tmp_path
+        / "storage"
+        / "users"
+        / "default"
+        / "templates"
+        / str(template_id)
+        / "template.xlsx"
     )
     assert template_path.exists(), f"{template_path} not created"
 
@@ -129,8 +134,13 @@ def test_patch_cells_updates_values(client: TestClient) -> None:
     xlsx = make_template(mode="hybrid")
     create_resp = client.post(
         "/templates",
-        files={"file": ("t.xlsx", xlsx,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        files={
+            "file": (
+                "t.xlsx",
+                xlsx,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
         data={"name": "t"},
     )
     template_id = create_resp.json()["template_id"]
@@ -145,7 +155,8 @@ def test_patch_cells_updates_values(client: TestClient) -> None:
         ],
     }
     patch_resp = client.patch(
-        f"/templates/{template_id}/cells", json=patch_body,
+        f"/templates/{template_id}/cells",
+        json=patch_body,
     )
     assert patch_resp.status_code == 200
     assert patch_resp.json()["updated_count"] == 1
@@ -163,8 +174,13 @@ def test_delete_template(client: TestClient) -> None:
     xlsx = make_template(mode="hybrid")
     create_resp = client.post(
         "/templates",
-        files={"file": ("t.xlsx", xlsx,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        files={
+            "file": (
+                "t.xlsx",
+                xlsx,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
         data={"name": "t"},
     )
     template_id = create_resp.json()["template_id"]
@@ -183,8 +199,13 @@ def test_download_template_raw(client: TestClient) -> None:
     xlsx = make_template(mode="hybrid")
     create_resp = client.post(
         "/templates",
-        files={"file": ("t.xlsx", xlsx,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        files={
+            "file": (
+                "t.xlsx",
+                xlsx,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
         data={"name": "t"},
     )
     template_id = create_resp.json()["template_id"]

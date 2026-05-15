@@ -27,7 +27,7 @@ dependencies = [
     "pillow>=12.2,<13",
     # XLSX 읽기/쓰기 + PDF 병합 — Phase 5 Templates + Generators.
     "openpyxl>=3.1,<4",
-    "pypdf>=4.0,<6",
+    "pypdf>=6.10.2,<7",
     # multipart 업로드 form parsing — Phase 6 Sessions/Templates API.
     "python-multipart>=0.0.20,<1",
 ]
@@ -48,6 +48,8 @@ dev = [
     "mypy>=1.13,<2",
     "ruff>=0.7,<0.10",
     "pip-audit>=2.7,<3",
+    # 단방향 의존 CI 차단 게이트 — CLAUDE.md "코드 구조". Phase 8.12.
+    "import-linter>=2.0,<3",
     # 합성 PDF 생성 (테스트 fixture) — Phase 4.
     "reportlab>=4.2,<5",
 ]
@@ -132,4 +134,37 @@ filterwarnings = [
     "ignore::DeprecationWarning:docling",
     "ignore::DeprecationWarning:docling.*",
     "ignore::DeprecationWarning:pydantic._internal._model_construction",
+]
+
+# -----------------------------------------------------------------------------
+# import-linter — CLAUDE.md "코드 구조": 단방향 의존 CI 차단 게이트 (Phase 8.12)
+# 실 import 그래프 기준 contract (lint-imports 로컬 GREEN 확인 후 커밋).
+# 보류: api/domain 의 openpyxl/httpx 금지 contract — templates.py:27 선재 위반
+#       (P7~8.8 유입). 게이트 약화 불가하므로 별도 sub-phase 리팩터 후 추가.
+# -----------------------------------------------------------------------------
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "도메인 순수성 — domain 은 어떤 app 하위 패키지도 import 하지 않음"
+type = "forbidden"
+source_modules = ["app.domain"]
+forbidden_modules = [
+    "app.api",
+    "app.core",
+    "app.db",
+    "app.services",
+    "app.schemas",
+    "app.workers",
+]
+
+[[tool.importlinter.contracts]]
+name = "단방향 레이어 — api > services > db > core > domain"
+type = "layers"
+layers = [
+    "app.api",
+    "app.services",
+    "app.db",
+    "app.core",
+    "app.domain",
 ]

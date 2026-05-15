@@ -17,9 +17,7 @@ from openpyxl import load_workbook
 from tests.fixtures.synthetic_xlsx import make_template
 
 
-def _make_sheet_config(
-    *, with_date: bool = True, with_merchant: bool = True
-) -> SheetConfig:
+def _make_sheet_config(*, with_date: bool = True, with_merchant: bool = True) -> SheetConfig:
     return SheetConfig(
         sheet_name="법인",
         date_col="A" if with_date else None,

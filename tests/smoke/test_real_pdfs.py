@@ -164,9 +164,7 @@ async def test_real_pdf_extracts_required_fields(file_path: Path) -> None:
         assert result.가맹점명, f"{loc}: 가맹점명 missing"
         assert result.거래일 is not None, f"{loc}: 거래일 missing"
         assert result.금액 > 0, f"{loc}: 금액 not positive"
-        high_medium = sum(
-            1 for v in result.field_confidence.values() if v in ("high", "medium")
-        )
+        high_medium = sum(1 for v in result.field_confidence.values() if v in ("high", "medium"))
         assert high_medium >= 1, (
             f"{loc}: no high/medium confidence (confidence={result.field_confidence})"
         )
@@ -178,8 +176,7 @@ async def test_real_pdf_extracts_required_fields(file_path: Path) -> None:
     if parser_used == "rule_based" and len(results) > 1:
         limit_s = 5.0 * len(results)
     assert elapsed < limit_s, (
-        f"{file_path.name}: {elapsed:.1f}s exceeds {limit_s}s "
-        f"({parser_used}, {len(results)} tx)"
+        f"{file_path.name}: {elapsed:.1f}s exceeds {limit_s}s ({parser_used}, {len(results)} tx)"
     )
 
     _record_result(file_path, results, elapsed)

@@ -44,9 +44,7 @@ def test_post_sessions_creates_db_row_and_enqueues_job(client: TestClient) -> No
     assert body["status"] == "parsing"
 
 
-def test_post_sessions_writes_files_to_per_user_dir(
-    client: TestClient, tmp_path: Path
-) -> None:
+def test_post_sessions_writes_files_to_per_user_dir(client: TestClient, tmp_path: Path) -> None:
     """업로드 후 storage/users/default/sessions/{id}/uploads/ 에 uuid 파일 저장."""
     files = {"receipts": ("한글영수증.png", _png_bytes(), "image/png")}
     data = {"year_month": "2026-05"}
@@ -118,9 +116,7 @@ def test_get_transactions_returns_empty_for_new_session(client: TestClient) -> N
     assert body["counts"]["all"] == 0
 
 
-@pytest.mark.skip(
-    reason="Phase 6.7b-3 e2e 에서 통합 검증 — TestClient + asyncio.run race 회피."
-)
+@pytest.mark.skip(reason="Phase 6.7b-3 e2e 에서 통합 검증 — TestClient + asyncio.run race 회피.")
 def test_patch_transaction_last_write_wins(client: TestClient) -> None:
     """PATCH 가 ExpenseRecord upsert — 두 번째 PATCH 가 첫 번째 덮어쓰기."""
     import asyncio
@@ -340,9 +336,9 @@ def test_generate_with_image_tx_persists_layout_pdf_kind(
         fm = client.app.state.file_manager  # type: ignore[attr-defined]
         sm = client.app.state.db_sessionmaker  # type: ignore[attr-defined]
         async with sm() as db:
-            user = (await db.execute(
-                __import__("sqlalchemy").select(User).where(User.oid == "default")
-            )).scalar_one_or_none()
+            user = (
+                await db.execute(__import__("sqlalchemy").select(User).where(User.oid == "default"))
+            ).scalar_one_or_none()
             if user is None:
                 user = User(oid="default", name="기본", email=None)
                 db.add(user)

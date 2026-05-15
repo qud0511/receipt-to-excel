@@ -52,7 +52,10 @@ async def autocomplete_vendors(
     """Vendor autocomplete — 최근 사용 우선 + prefix 매칭."""
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     vendors = await vendor_repo.autocomplete(
-        db, user_id=db_user.id, prefix=q, limit=limit,
+        db,
+        user_id=db_user.id,
+        prefix=q,
+        limit=limit,
     )
     response.headers.update(_CACHE_HEADER)
     return [
@@ -78,7 +81,11 @@ async def autocomplete_projects(
     """Project autocomplete — vendor scope 강제 (IDOR + 2-tier UI)."""
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     projects = await project_repo.autocomplete(
-        db, user_id=db_user.id, vendor_id=vendor_id, prefix=q, limit=limit,
+        db,
+        user_id=db_user.id,
+        vendor_id=vendor_id,
+        prefix=q,
+        limit=limit,
     )
     response.headers.update(_CACHE_HEADER)
     return [

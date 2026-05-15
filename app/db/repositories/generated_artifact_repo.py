@@ -43,7 +43,10 @@ async def replace_for_session(
 
 
 async def list_for_session(
-    db: AsyncSession, *, user_id: int, session_id: int,
+    db: AsyncSession,
+    *,
+    user_id: int,
+    session_id: int,
 ) -> list[GeneratedArtifact]:
     stmt = (
         select(GeneratedArtifact)
@@ -56,7 +59,11 @@ async def list_for_session(
 
 
 async def get_by_kind(
-    db: AsyncSession, *, user_id: int, session_id: int, artifact_type: str,
+    db: AsyncSession,
+    *,
+    user_id: int,
+    session_id: int,
+    artifact_type: str,
 ) -> GeneratedArtifact:
     """IDOR + 404 — kind 일치 + user 일치."""
     stmt = (

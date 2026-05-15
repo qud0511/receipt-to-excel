@@ -43,11 +43,13 @@ def test_vendors_autocomplete_with_data(client: TestClient) -> None:
             user = User(oid="default", name="t", email="t@x")
             db.add(user)
             await db.flush()
-            db.add_all([
-                Vendor(user_id=user.id, name="신용정보원"),
-                Vendor(user_id=user.id, name="신한은행"),
-                Vendor(user_id=user.id, name="한국은행"),
-            ])
+            db.add_all(
+                [
+                    Vendor(user_id=user.id, name="신용정보원"),
+                    Vendor(user_id=user.id, name="신한은행"),
+                    Vendor(user_id=user.id, name="한국은행"),
+                ]
+            )
             await db.commit()
 
     asyncio.run(_seed())
@@ -96,10 +98,12 @@ def test_team_groups_returns_nested_members(client: TestClient) -> None:
             tg = TeamGroup(user_id=user.id, name="개발1팀")
             db.add(tg)
             await db.flush()
-            db.add_all([
-                TeamMember(team_group_id=tg.id, name="홍길동"),
-                TeamMember(team_group_id=tg.id, name="김지호"),
-            ])
+            db.add_all(
+                [
+                    TeamMember(team_group_id=tg.id, name="홍길동"),
+                    TeamMember(team_group_id=tg.id, name="김지호"),
+                ]
+            )
             await db.commit()
 
     asyncio.run(_seed())
@@ -124,11 +128,13 @@ def test_attendees_filter_by_q(client: TestClient) -> None:
             tg = TeamGroup(user_id=user.id, name="개발1팀")
             db.add(tg)
             await db.flush()
-            db.add_all([
-                TeamMember(team_group_id=tg.id, name="홍길동"),
-                TeamMember(team_group_id=tg.id, name="김지호"),
-                TeamMember(team_group_id=tg.id, name="박서연"),
-            ])
+            db.add_all(
+                [
+                    TeamMember(team_group_id=tg.id, name="홍길동"),
+                    TeamMember(team_group_id=tg.id, name="김지호"),
+                    TeamMember(team_group_id=tg.id, name="박서연"),
+                ]
+            )
             await db.commit()
 
     asyncio.run(_seed())

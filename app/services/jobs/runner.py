@@ -80,29 +80,45 @@ class JobRunner:
         total = len(receipts) + len(card_statements)
         try:
             self._publish(
-                session_id, stage="uploaded", file_idx=0, total=total,
+                session_id,
+                stage="uploaded",
+                file_idx=0,
+                total=total,
                 msg=f"업로드 수신 — 영수증 {len(receipts)} / 카드내역 {len(card_statements)}",
             )
 
             receipt_txs, receipt_sources = await self._run_receipts(
-                session_id, receipts, total=total,
+                session_id,
+                receipts,
+                total=total,
             )
             card_txs, card_sources = self._run_card_statements(
-                session_id, card_statements, total=total, offset=len(receipts),
+                session_id,
+                card_statements,
+                total=total,
+                offset=len(receipts),
             )
 
             matches = match_receipts_with_card_transactions(
-                receipts=receipt_txs, card_transactions=card_txs,
+                receipts=receipt_txs,
+                card_transactions=card_txs,
             )
             matched_count = sum(
                 1 for m in matches if m.receipt is not None and m.card_transaction is not None
             )
 
             transactions, source_filenames = self._reconcile_with_sources(
-                matches, receipt_txs, receipt_sources, card_txs, card_sources,
+                matches,
+                receipt_txs,
+                receipt_sources,
+                card_txs,
+                card_sources,
             )
             self._publish(
-                session_id, stage="done", file_idx=total, total=total,
+                session_id,
+                stage="done",
+                file_idx=total,
+                total=total,
                 msg=f"파싱 완료 — {len(transactions)} 거래, 매칭 {matched_count}",
             )
             return JobResult(
@@ -113,13 +129,20 @@ class JobRunner:
             )
         except Exception as exc:
             self._publish(
-                session_id, stage="error", file_idx=0, total=total,
+                session_id,
+                stage="error",
+                file_idx=0,
+                total=total,
                 msg=f"잡 실패: {type(exc).__name__}: {exc}",
             )
             raise JobRunnerError(f"잡 {session_id} 실패: {exc}") from exc
 
     async def _run_receipts(
-        self, session_id: int, receipts: list[tuple[str, bytes]], *, total: int,
+        self,
+        session_id: int,
+        receipts: list[tuple[str, bytes]],
+        *,
+        total: int,
     ) -> tuple[list[ParsedTransaction], list[str]]:
         """영수증 파일별 파서 호출. 결과의 source_filenames 도 함께 반환.
 
@@ -129,7 +152,11 @@ class JobRunner:
         sources: list[str] = []
         for idx, (filename, content) in enumerate(receipts):
             self._publish(
-                session_id, stage="rule_based", file_idx=idx, total=total, filename=filename,
+                session_id,
+                stage="rule_based",
+                file_idx=idx,
+                total=total,
+                filename=filename,
                 msg=f"영수증 파싱 — {filename}",
             )
             async with self._ollama_sem:
@@ -153,8 +180,12 @@ class JobRunner:
         sources: list[str] = []
         for idx, (filename, content) in enumerate(card_statements):
             self._publish(
-                session_id, stage="rule_based", file_idx=offset + idx, total=total,
-                filename=filename, msg=f"카드 사용내역 파싱 — {filename}",
+                session_id,
+                stage="rule_based",
+                file_idx=offset + idx,
+                total=total,
+                filename=filename,
+                msg=f"카드 사용내역 파싱 — {filename}",
             )
             suffix = PurePosixPath(filename).suffix.lower()
             parsed = self._card_statement_parser(content, suffix=suffix)
@@ -178,9 +209,7 @@ class JobRunner:
         receipt_id_to_source = {
             id(tx): src for tx, src in zip(receipt_txs, receipt_sources, strict=True)
         }
-        card_id_to_source = {
-            id(tx): src for tx, src in zip(card_txs, card_sources, strict=True)
-        }
+        card_id_to_source = {id(tx): src for tx, src in zip(card_txs, card_sources, strict=True)}
 
         out_tx: list[ParsedTransaction] = []
         out_src: list[str] = []

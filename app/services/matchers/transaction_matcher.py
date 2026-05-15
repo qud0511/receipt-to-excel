@@ -56,17 +56,13 @@ def match_receipts_with_card_transactions(
     receipt_alone: list[TransactionMatch] = []
 
     for receipt in receipts:
-        best_idx = _find_best_card_match(
-            receipt, card_transactions, consumed=consumed_card_indices
-        )
+        best_idx = _find_best_card_match(receipt, card_transactions, consumed=consumed_card_indices)
         if best_idx is None:
             receipt_alone.append(TransactionMatch(receipt=receipt, card_transaction=None))
         else:
             consumed_card_indices.add(best_idx)
             matched.append(
-                TransactionMatch(
-                    receipt=receipt, card_transaction=card_transactions[best_idx]
-                )
+                TransactionMatch(receipt=receipt, card_transaction=card_transactions[best_idx])
             )
 
     card_alone = [

@@ -39,9 +39,7 @@ _HEADER_SIGNATURES: dict[str, tuple[CardStatementProvider, tuple[str, ...]]] = {
 }
 
 
-def detect_provider_from_content(
-    content: bytes, *, suffix: str
-) -> CardStatementProvider:
+def detect_provider_from_content(content: bytes, *, suffix: str) -> CardStatementProvider:
     """헤더 row 의 keyword set 으로 provider 결정.
 
     XLSX: openpyxl 첫 시트 row 1 cell 값.

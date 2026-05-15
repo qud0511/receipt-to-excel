@@ -105,11 +105,11 @@ def create_app() -> FastAPI:
     app.state.event_bus = JobEventBus()
     app.state.parser_router = _build_parser_router(settings)
 
-    async def _receipt_parser(
-        content: bytes, *, filename: str
-    ) -> list[ParsedTransaction]:
+    async def _receipt_parser(content: bytes, *, filename: str) -> list[ParsedTransaction]:
         return await _receipt_parser_impl(
-            content, filename=filename, router=app.state.parser_router,
+            content,
+            filename=filename,
+            router=app.state.parser_router,
         )
 
     app.state.job_runner = JobRunner(

@@ -24,6 +24,10 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
+
+# 부채(P8.12 발견): CLAUDE.md "외부 의존성은 services/* 뒤에만 — api 에서 openpyxl
+# 직접 import 금지" 위반. import-linter openpyxl-forbidden contract 는 본 라인을
+# services 인터페이스 뒤로 옮기는 별도 sub-phase 리팩터 후 활성화 예정.
 from openpyxl import load_workbook
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -96,20 +100,20 @@ async def analyze_template(
         )
     except UploadValidationError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
         ) from e
 
     try:
         sheets = analyze_workbook(content)
     except TemplateAnalysisError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
         ) from e
 
     mapping_status = (
-        "needs_mapping"
-        if any(not cfg.analyzable for cfg in sheets.values())
-        else "mapped"
+        "needs_mapping" if any(not cfg.analyzable for cfg in sheets.values()) else "mapped"
     )
     return AnalyzedTemplateResponse(
         sheets={name: sheet_config_to_view(name, cfg) for name, cfg in sheets.items()},
@@ -119,7 +123,9 @@ async def analyze_template(
 
 # ── 3) POST /templates — 등록 (분석 + 영속 + 디스크 저장) ────────────────────
 @router.post(
-    "", response_model=TemplateCreatedResponse, status_code=status.HTTP_201_CREATED,
+    "",
+    response_model=TemplateCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
 )
 async def create_template(
     request: Request,
@@ -142,14 +148,16 @@ async def create_template(
         )
     except UploadValidationError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
         ) from e
 
     try:
         sheets = analyze_workbook(content)
     except TemplateAnalysisError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
         ) from e
 
     # SheetConfig dict → JSON 직렬화 (Pydantic model_dump).
@@ -157,9 +165,7 @@ async def create_template(
         name: sheet_config_to_view(name, cfg).model_dump() for name, cfg in sheets.items()
     }
     mapping_status = (
-        "needs_mapping"
-        if any(not cfg.analyzable for cfg in sheets.values())
-        else "mapped"
+        "needs_mapping" if any(not cfg.analyzable for cfg in sheets.values()) else "mapped"
     )
 
     template_name = name or info.original_filename
@@ -175,7 +181,9 @@ async def create_template(
 
     file_manager = request.app.state.file_manager
     template_dir = file_manager.template_dir(
-        user_oid=user.oid, template_id=str(template.id), create=True,
+        user_oid=user.oid,
+        template_id=str(template.id),
+        create=True,
     )
     template_path = template_dir / "template.xlsx"
     template_path.write_bytes(content)
@@ -184,7 +192,9 @@ async def create_template(
     await db.commit()
 
     return TemplateCreatedResponse(
-        template_id=template.id, name=template.name, mapping_status=mapping_status,
+        template_id=template.id,
+        name=template.name,
+        mapping_status=mapping_status,
     )
 
 
@@ -198,12 +208,15 @@ async def get_template_grid(
     """Templates editor — 셀 값 + 좌표 JSON."""
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     template = await template_repo.get(
-        db, user_id=db_user.id, template_id=template_id,
+        db,
+        user_id=db_user.id,
+        template_id=template_id,
     )
     p = Path(template.file_path)
     if not p.exists():
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="template file missing",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="template file missing",
         )
     wb = load_workbook(io.BytesIO(p.read_bytes()), data_only=False)
     sheets: dict[str, GridSheetView] = {}
@@ -222,7 +235,10 @@ async def get_template_grid(
                     cell_val = str(val)
                 cells.append(
                     GridCell(
-                        row=row_idx, col=col_idx, value=cell_val, is_formula=is_formula,
+                        row=row_idx,
+                        col=col_idx,
+                        value=cell_val,
+                        is_formula=is_formula,
                     ),
                 )
         sheets[sheet_name] = GridSheetView(
@@ -245,12 +261,15 @@ async def patch_template_cells(
     """ADR-010 추천 3: 셀 값만 수정. style/병합/줌은 Phase 8+ deferred."""
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     template = await template_repo.get(
-        db, user_id=db_user.id, template_id=template_id,
+        db,
+        user_id=db_user.id,
+        template_id=template_id,
     )
     p = Path(template.file_path)
     if not p.exists():
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="template file missing",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="template file missing",
         )
 
     wb = load_workbook(io.BytesIO(p.read_bytes()))
@@ -282,7 +301,9 @@ async def patch_template_mapping(
     """매핑 chip 단위 column_map 갱신 — sheets_json 직접 수정."""
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     template = await template_repo.get(
-        db, user_id=db_user.id, template_id=template_id,
+        db,
+        user_id=db_user.id,
+        template_id=template_id,
     )
     sheets_json: dict[str, Any] = dict(template.sheets_json)
     if body.sheet not in sheets_json:
@@ -313,7 +334,10 @@ async def patch_template_meta(
 ) -> dict[str, object]:
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     await template_repo.update_meta(
-        db, user_id=db_user.id, template_id=template_id, name=body.name,
+        db,
+        user_id=db_user.id,
+        template_id=template_id,
+        name=body.name,
     )
     await db.commit()
     return {"ok": True}
@@ -340,11 +364,14 @@ async def download_template_raw(
 ) -> FileResponse:
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     template = await template_repo.get(
-        db, user_id=db_user.id, template_id=template_id,
+        db,
+        user_id=db_user.id,
+        template_id=template_id,
     )
     p = Path(template.file_path)
     if not p.exists():
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="template file missing",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="template file missing",
         )
     return FileResponse(path=p, filename=f"{template.name}.xlsx")

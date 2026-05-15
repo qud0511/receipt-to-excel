@@ -143,9 +143,7 @@ async def test_real_shinhan_01_extracts_date_amount_merchant() -> None:
 
 
 @pytest.mark.real_pdf
-@pytest.mark.skipif(
-    not _SHINHAN_TAXI_01.exists(), reason="shinhan_taxi_01.pdf 미존재 (gitignore)"
-)
+@pytest.mark.skipif(not _SHINHAN_TAXI_01.exists(), reason="shinhan_taxi_01.pdf 미존재 (gitignore)")
 async def test_real_shinhan_taxi_01_extracts_fields() -> None:
     """실 shinhan_taxi_01.pdf — 동일 layout, 업종=택시."""
     content = _SHINHAN_TAXI_01.read_bytes()

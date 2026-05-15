@@ -34,9 +34,7 @@ def upgrade() -> None:
     with op.batch_alter_table("upload_session") as batch_op:
         batch_op.drop_constraint("ck_upload_session_status", type_="check")
     # 기존 데이터 보정 — 'review' 가 있다면 'awaiting_user' 로.
-    op.execute(
-        "UPDATE upload_session SET status = 'awaiting_user' WHERE status = 'review'"
-    )
+    op.execute("UPDATE upload_session SET status = 'awaiting_user' WHERE status = 'review'")
     with op.batch_alter_table("upload_session") as batch_op:
         batch_op.create_check_constraint(
             "ck_upload_session_status",
@@ -49,15 +47,11 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("processing_completed_at", sa.DateTime(timezone=True), nullable=True)
         )
-        batch_op.add_column(
-            sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=True)
-        )
+        batch_op.add_column(sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=True))
 
     # ── 3. Transaction.original_filename (한글 원본명 metadata) ───────────────
     with op.batch_alter_table("transaction") as batch_op:
-        batch_op.add_column(
-            sa.Column("original_filename", sa.String(length=512), nullable=True)
-        )
+        batch_op.add_column(sa.Column("original_filename", sa.String(length=512), nullable=True))
 
     # ── 4. Template.mapping_status (ADR-011) ──────────────────────────────────
     with op.batch_alter_table("template") as batch_op:
@@ -90,12 +84,8 @@ def upgrade() -> None:
             server_default=sa.func.now(),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(
-            ["session_id"], ["upload_session.id"], ondelete="CASCADE"
-        ),
-        sa.ForeignKeyConstraint(
-            ["user_id"], ["user.id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["session_id"], ["upload_session.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["user_id"], ["user.id"], ondelete="CASCADE"),
         sa.CheckConstraint(
             "artifact_type IN ('xlsx', 'pdf', 'zip')",
             name="ck_generated_artifact_type",
@@ -130,9 +120,7 @@ def downgrade() -> None:
         batch_op.drop_column("processing_started_at")
         batch_op.drop_constraint("ck_upload_session_status", type_="check")
     # 데이터 역보정 — 'awaiting_user' → 'review'.
-    op.execute(
-        "UPDATE upload_session SET status = 'review' WHERE status = 'awaiting_user'"
-    )
+    op.execute("UPDATE upload_session SET status = 'review' WHERE status = 'awaiting_user'")
     with op.batch_alter_table("upload_session") as batch_op:
         batch_op.create_check_constraint(
             "ck_upload_session_status",

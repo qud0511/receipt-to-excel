@@ -112,9 +112,7 @@ class WooriRuleBasedParser(BaseParser):
                     texts.append(cropped.extract_text() or "")
         return texts
 
-    def _parse_single_block(
-        self, block: list[str], *, filename: str
-    ) -> ParsedTransaction:
+    def _parse_single_block(self, block: list[str], *, filename: str) -> ParsedTransaction:
         if len(block) < 12:
             raise RequiredFieldMissingError(
                 f"우리카드 블록 line 수 부족 — got {len(block)}, expected >= 12",

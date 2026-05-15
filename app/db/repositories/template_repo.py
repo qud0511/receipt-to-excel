@@ -68,9 +68,7 @@ async def update_meta(
     return template
 
 
-async def delete_by_id(
-    db: AsyncSession, *, user_id: int, template_id: int
-) -> None:
+async def delete_by_id(db: AsyncSession, *, user_id: int, template_id: int) -> None:
     """IDOR 차단 — get() 통과 후 삭제."""
     template = await get(db, user_id=user_id, template_id=template_id)
     stmt = delete(Template).where(Template.id == template.id)

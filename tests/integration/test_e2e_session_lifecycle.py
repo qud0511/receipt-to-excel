@@ -33,7 +33,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 def test_full_lifecycle_upload_parse_generate_download(
-    client: TestClient, tmp_path: Path,
+    client: TestClient,
+    tmp_path: Path,
 ) -> None:
     """전체 흐름 e2e — 합성 영수증 1 + 합성 양식 1 → 다운로드.
 
@@ -47,11 +48,13 @@ def test_full_lifecycle_upload_parse_generate_download(
     template_xlsx = make_template(mode="hybrid")
     template_resp = client.post(
         "/templates",
-        files={"file": (
-            "양식.xlsx",
-            template_xlsx,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )},
+        files={
+            "file": (
+                "양식.xlsx",
+                template_xlsx,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
         data={"name": "테스트 양식"},
     )
     assert template_resp.status_code == 201, template_resp.text

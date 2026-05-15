@@ -74,19 +74,13 @@ class UploadGuard:
 
         allowed_mimes, magic_prefixes = _ALLOWED[ext]
         if declared_mime not in allowed_mimes:
-            raise UploadValidationError(
-                f"MIME 불일치: {declared_mime} (허용: {allowed_mimes})"
-            )
+            raise UploadValidationError(f"MIME 불일치: {declared_mime} (허용: {allowed_mimes})")
 
-        if magic_prefixes is not None and not any(
-            content.startswith(p) for p in magic_prefixes
-        ):
+        if magic_prefixes is not None and not any(content.startswith(p) for p in magic_prefixes):
             raise UploadValidationError(f"매직바이트 불일치: {filename}")
 
         if len(content) > _MAX_FILE_BYTES:
-            raise UploadValidationError(
-                f"파일 크기 초과: {len(content)} > {_MAX_FILE_BYTES}"
-            )
+            raise UploadValidationError(f"파일 크기 초과: {len(content)} > {_MAX_FILE_BYTES}")
 
         return UploadInfo(
             original_filename=filename,
@@ -96,21 +90,15 @@ class UploadGuard:
             size=len(content),
         )
 
-    def validate_batch(
-        self, items: list[tuple[str, bytes, str]]
-    ) -> list[UploadInfo]:
+    def validate_batch(self, items: list[tuple[str, bytes, str]]) -> list[UploadInfo]:
         """다중 파일 검증 — 한 건이라도 실패하면 전체 실패. 배치 총합 ≤ 500MB."""
         total = sum(len(content) for _, content, _ in items)
         if total > _MAX_BATCH_BYTES:
-            raise UploadValidationError(
-                f"배치 크기 초과: {total} > {_MAX_BATCH_BYTES}"
-            )
+            raise UploadValidationError(f"배치 크기 초과: {total} > {_MAX_BATCH_BYTES}")
         infos: list[UploadInfo] = []
         for filename, content, declared_mime in items:
             infos.append(
-                self.validate(
-                    filename=filename, content=content, declared_mime=declared_mime
-                )
+                self.validate(filename=filename, content=content, declared_mime=declared_mime)
             )
         return infos
 

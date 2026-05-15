@@ -217,9 +217,7 @@ def insert_row_at(
 
     # openpyxl insert_rows 는 셀 값/스타일 일부만 shift. merged_cells 는 수동 처리.
     # 1) 기존 merged ranges 중 target_row 이상의 range 를 +1 shift 위해 미리 수집.
-    ranges_to_shift = [
-        cr for cr in list(ws.merged_cells.ranges) if cr.min_row >= target_row
-    ]
+    ranges_to_shift = [cr for cr in list(ws.merged_cells.ranges) if cr.min_row >= target_row]
 
     # 2) shift 대상 merge 해제 → row 삽입 → 새 좌표로 재등록.
     for cr in ranges_to_shift:

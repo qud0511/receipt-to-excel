@@ -39,9 +39,7 @@ async def upsert_user_input(
     if tx is None or tx.user_id != user_id:
         raise ForbiddenError("not your transaction")
 
-    existing = await get_by_transaction(
-        db, user_id=user_id, transaction_id=transaction_id
-    )
+    existing = await get_by_transaction(db, user_id=user_id, transaction_id=transaction_id)
     if existing is None:
         # 신규 — 최소 필드. vendor_id / xlsx_sheet 등은 Phase 6.9 resolver 가 갱신.
         attendees = patch.get("attendees")

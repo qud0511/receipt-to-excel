@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from app.api.routes import auth, health, sessions, templates
+from app.api.routes import auth, autocomplete, dashboard, health, sessions, templates
 from app.core.auth import AzureADVerifier
 from app.core.config import Settings
 from app.core.errors import register_error_handlers
@@ -127,6 +127,8 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(sessions.router)
     app.include_router(templates.router)
+    app.include_router(autocomplete.router)
+    app.include_router(dashboard.router)
     return app
 
 

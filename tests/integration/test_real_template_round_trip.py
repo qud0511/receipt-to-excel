@@ -71,3 +71,37 @@ def test_real_xlsx_round_trip_via_template_analyzer(path: Path) -> None:
         if cfg.mode in ("category", "hybrid"):
             has_food_or_etc = "식대" in cfg.category_cols or "기타비용" in cfg.category_cols
             assert has_food_or_etc, f"{name}: category_cols={cfg.category_cols}"
+
+
+def test_real_xlsx_grid_io_round_trip() -> None:
+    """실 양식 3장 → grid_io read_grid/apply_cell_patches round-trip 보존.
+
+    PII 보호: 셀 값 자체를 단언/로그하지 않고 구조 불변식만 검증.
+    """
+    from app.services.templates.grid_io import apply_cell_patches, read_grid
+
+    present = [p for p in _REAL_TEMPLATE_FILES if p.exists()]
+    if not present:
+        pytest.skip("real_templates 미존재 (gitignore)")
+
+    for path in present:
+        content = path.read_bytes()
+        sheets = read_grid(content)
+        assert sheets, f"{path.name}: 시트 0"
+        assert any(s.cells for s in sheets.values()), f"{path.name}: 모든 시트 빈 셀"
+        for s in sheets.values():
+            assert s.max_row >= 1 and s.max_col >= 1
+
+        # no-op 성격 패치: 기존 셀에 동일 값 재기록 → 구조 보존 확인.
+        first_sheet, rs = next(iter(sheets.items()))
+        assert rs.cells, f"{path.name}: {first_sheet} 빈 셀"
+        c0 = rs.cells[0]
+        new_bytes, count = apply_cell_patches(content, [(first_sheet, c0.row, c0.col, c0.value)])
+        assert count == 1
+        after = read_grid(new_bytes)
+        # 시트 집합·각 시트 셀 좌표/수식여부 보존.
+        assert set(after) == set(sheets)
+        for name in sheets:
+            before_idx = {(c.row, c.col, c.is_formula) for c in sheets[name].cells}
+            after_idx = {(c.row, c.col, c.is_formula) for c in after[name].cells}
+            assert after_idx == before_idx, f"{path.name}/{name}: grid 구조 변경됨"

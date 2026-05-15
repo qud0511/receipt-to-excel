@@ -10,6 +10,8 @@ import { SummaryBar } from "@/features/verify/SummaryBar";
 import { useTransactions, useBulkTag, usePatchTransaction } from "@/lib/hooks/useTransactions";
 import { useVendors } from "@/lib/hooks/useVendors";
 import { useProjects } from "@/lib/hooks/useProjects";
+import { useTeamGroups } from "@/lib/hooks/useTeamGroups";
+import { AttendeesModal } from "@/features/verify/AttendeesModal";
 import type { VerifyFilter } from "@/lib/constants";
 import { ApiError } from "@/lib/api/client";
 import type { AutocompleteOption } from "@/components/Autocomplete";
@@ -22,12 +24,14 @@ export function VerifyPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [activeId, setActiveId] = useState<number | null>(null);
   const [activeProjectVendorId, setActiveProjectVendorId] = useState<number | null>(null);
+  const [attendeesEditId, setAttendeesEditId] = useState<number | null>(null);
 
   const list = useTransactions(sessionId, filter);
   const patch = usePatchTransaction(sessionId);
   const bulk = useBulkTag(sessionId);
   const vendors = useVendors("");
   const projects = useProjects(activeProjectVendorId);
+  const teamGroups = useTeamGroups();
 
   const rows = useMemo(() => list.data?.transactions ?? [], [list.data]);
   const counts = list.data?.counts ?? { all: 0, missing: 0, review: 0, complete: 0 };
@@ -167,12 +171,26 @@ export function VerifyPage() {
               vendorOptions={vendorOptions}
               projectOptions={projectOptions}
               onProjectFocus={handleProjectFocus}
+              onAttendeesClick={(id) => setAttendeesEditId(id)}
             />
           )}
         </div>
       </div>
 
       <SummaryBar total={rows.length} completed={completed} sumAmount={sumAmount} />
+
+      <AttendeesModal
+        open={attendeesEditId != null}
+        initial={rows.find((r) => r.id === attendeesEditId)?.attendees ?? []}
+        groups={teamGroups.data ?? []}
+        onClose={() => setAttendeesEditId(null)}
+        onSave={(next) => {
+          if (attendeesEditId != null) {
+            patch.mutate({ txId: attendeesEditId, patch: { attendees: next } });
+          }
+          setAttendeesEditId(null);
+        }}
+      />
     </section>
   );
 }

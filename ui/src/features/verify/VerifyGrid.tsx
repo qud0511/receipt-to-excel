@@ -19,6 +19,8 @@ interface VerifyGridProps {
   projectOptions?: AutocompleteOption[];
   /** project 셀 focus 시 호출 — 부모가 row 의 vendor → vendor_id 매핑 후 projectOptions 갱신 */
   onProjectFocus?: (txId: number) => void;
+  /** 참석자 chip 영역 클릭 시 호출 — 부모가 AttendeesModal 열음 */
+  onAttendeesClick?: (txId: number) => void;
 }
 
 const HEAD = [
@@ -31,6 +33,7 @@ const HEAD = [
   { key: "project", label: "프로젝트" },
   { key: "purpose", label: "용도" },
   { key: "headcount", label: "인원" },
+  { key: "attendees", label: "참석자" },
   { key: "amount", label: "금액" },
 ] as const;
 
@@ -98,6 +101,7 @@ export function VerifyGrid({
   vendorOptions = [],
   projectOptions = [],
   onProjectFocus,
+  onAttendeesClick,
 }: VerifyGridProps) {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
@@ -214,6 +218,37 @@ export function VerifyGrid({
                     }}
                     className="num h-9 w-12 bg-transparent text-center outline-none focus:bg-surface focus:shadow-[inset_0_0_0_2px_var(--brand)]"
                   />
+                </td>
+                <td className={cn("h-10 border-b border-r border-border align-middle", isSelected && "bg-brand-soft")}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAttendeesClick?.(t.id);
+                    }}
+                    aria-label={`${t.가맹점명} 참석자 편집`}
+                    className="flex h-9 w-full items-center gap-1 overflow-hidden whitespace-nowrap px-2 text-left hover:bg-surface-2"
+                  >
+                    {t.attendees.length === 0 ? (
+                      <span className="rounded-full border border-dashed border-border-strong px-2 py-0.5 text-[11px] text-text-3 hover:border-brand hover:text-brand">
+                        + 참석자
+                      </span>
+                    ) : (
+                      <>
+                        {t.attendees.slice(0, 2).map((name) => (
+                          <span
+                            key={name}
+                            className="inline-flex rounded-full border border-border bg-bg px-2 py-0.5 text-[11.5px] text-text-2"
+                          >
+                            {name}
+                          </span>
+                        ))}
+                        {t.attendees.length > 2 && (
+                          <span className="num text-[11px] text-text-3">+{t.attendees.length - 2}</span>
+                        )}
+                      </>
+                    )}
+                  </button>
                 </td>
                 <td className={cn("h-10 border-b border-r border-border px-2.5 align-middle text-right", isSelected && "bg-brand-soft")}>
                   <div className="num font-bold">{formatKRWshort(t.금액)}</div>

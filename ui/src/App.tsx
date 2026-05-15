@@ -1,13 +1,33 @@
+import { useState } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { TopNav } from "@/components/TopNav";
+import { DashboardPage } from "@/pages/DashboardPage";
+import { UploadPage } from "@/pages/UploadPage";
+import { VerifyPage } from "@/pages/VerifyPage";
+import { ResultPage } from "@/pages/ResultPage";
+import { TemplatesPage } from "@/pages/TemplatesPage";
+import { makeQueryClient } from "@/lib/query";
+import { REQUIRE_AUTH } from "@/lib/config";
+
 export function App() {
+  const [queryClient] = useState(makeQueryClient);
+
   return (
-    <main className="grid min-h-full place-items-center bg-bg p-8">
-      <section className="text-center">
-        <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-brand to-brand-2 font-mono text-[15px] font-extrabold tracking-tighter text-white shadow-md">
-          CX
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <div className="flex h-full min-h-screen flex-col bg-bg">
+          <TopNav userName={REQUIRE_AUTH ? undefined : "홍길동"} />
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/upload" element={<UploadPage />} />
+            <Route path="/verify/:sessionId" element={<VerifyPage />} />
+            <Route path="/result/:sessionId" element={<ResultPage />} />
+            <Route path="/templates" element={<TemplatesPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-text">CreditXLSX</h1>
-        <p className="mt-1 text-sm text-text-3">영수증 자동 정산 — Phase 7 UI bootstrap</p>
-      </section>
-    </main>
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }

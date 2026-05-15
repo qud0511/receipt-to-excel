@@ -2,19 +2,22 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { App } from "./App";
 
-describe("App bootstrap", () => {
-  it("브랜드명을 렌더한다", () => {
+describe("App routing", () => {
+  it("/ 경로 진입 시 Dashboard 페이지 렌더 (CreditXLSX 브랜드 노출)", () => {
+    window.history.pushState({}, "", "/");
     render(<App />);
-    expect(screen.getByRole("heading", { name: "CreditXLSX" })).toBeInTheDocument();
+    expect(screen.getByText("CreditXLSX")).toBeInTheDocument();
   });
 
-  it("CX 로고 마크를 표시한다", () => {
+  it("/upload 경로 진입 시 step indicator 노출", () => {
+    window.history.pushState({}, "", "/upload");
     render(<App />);
-    expect(screen.getByText("CX")).toBeInTheDocument();
+    expect(screen.getByText("업로드")).toBeInTheDocument();
   });
 
-  it("Phase 7 UI bootstrap 안내를 보여준다", () => {
+  it("/templates 경로 진입 시 템플릿 페이지 헤더", () => {
+    window.history.pushState({}, "", "/templates");
     render(<App />);
-    expect(screen.getByText(/Phase 7 UI bootstrap/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /템플릿/ })).toBeInTheDocument();
   });
 });

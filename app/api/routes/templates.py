@@ -8,7 +8,6 @@ CLAUDE.md 강제: 모든 변경 라우터에 Depends(get_current_user) + IDOR �
 
 from __future__ import annotations
 
-import io
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Annotated, Any
@@ -24,11 +23,6 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-
-# 부채(P8.12 발견): CLAUDE.md "외부 의존성은 services/* 뒤에만 — api 에서 openpyxl
-# 직접 import 금지" 위반. import-linter openpyxl-forbidden contract 는 본 라인을
-# services 인터페이스 뒤로 옮기는 별도 sub-phase 리팩터 후 활성화 예정.
-from openpyxl import load_workbook
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -48,6 +42,12 @@ from app.schemas.template import (
     sheet_config_to_view,
 )
 from app.services.templates.analyzer import TemplateAnalysisError, analyze_workbook
+from app.services.templates.grid_io import (
+    RawSheet,
+    TemplateSheetNotFoundError,
+    apply_cell_patches,
+    read_grid,
+)
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -218,35 +218,24 @@ async def get_template_grid(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="template file missing",
         )
-    wb = load_workbook(io.BytesIO(p.read_bytes()), data_only=False)
-    sheets: dict[str, GridSheetView] = {}
-    for sheet_name in wb.sheetnames:
-        ws = wb[sheet_name]
-        cells: list[GridCell] = []
-        for row_idx in range(1, ws.max_row + 1):
-            for col_idx in range(1, ws.max_column + 1):
-                val = ws.cell(row=row_idx, column=col_idx).value
-                if val is None:
-                    continue
-                is_formula = isinstance(val, str) and val.startswith("=")
-                if isinstance(val, int | float | str):
-                    cell_val: str | int | float | None = val
-                else:
-                    cell_val = str(val)
-                cells.append(
-                    GridCell(
-                        row=row_idx,
-                        col=col_idx,
-                        value=cell_val,
-                        is_formula=is_formula,
-                    ),
+    raw: dict[str, RawSheet] = read_grid(p.read_bytes())
+    sheets: dict[str, GridSheetView] = {
+        name: GridSheetView(
+            sheet_name=name,
+            cells=[
+                GridCell(
+                    row=c.row,
+                    col=c.col,
+                    value=c.value,
+                    is_formula=c.is_formula,
                 )
-        sheets[sheet_name] = GridSheetView(
-            sheet_name=sheet_name,
-            cells=cells,
-            max_row=ws.max_row,
-            max_col=ws.max_column,
+                for c in rs.cells
+            ],
+            max_row=rs.max_row,
+            max_col=rs.max_col,
         )
+        for name, rs in raw.items()
+    }
     return GridResponse(sheets=sheets)
 
 
@@ -272,21 +261,17 @@ async def patch_template_cells(
             detail="template file missing",
         )
 
-    wb = load_workbook(io.BytesIO(p.read_bytes()))
-    updated = 0
-    for cell_patch in body.cells:
-        if cell_patch.sheet not in wb.sheetnames:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"sheet '{cell_patch.sheet}' not found",
-            )
-        ws = wb[cell_patch.sheet]
-        ws.cell(row=cell_patch.row, column=cell_patch.col).value = cell_patch.value
-        updated += 1
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    p.write_bytes(buf.getvalue())
+    try:
+        new_bytes, updated = apply_cell_patches(
+            p.read_bytes(),
+            [(c.sheet, c.row, c.col, c.value) for c in body.cells],
+        )
+    except TemplateSheetNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
+        ) from e
+    p.write_bytes(new_bytes)
     return {"ok": True, "updated_count": updated}
 
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -55,6 +55,7 @@ from app.schemas.session import (
 from app.services.generators.layout_pdf import (
     write_layout_pdf,
 )
+from app.services.generators.merged_pdf import write_merged_pdf
 from app.services.generators.xlsx_writer import (
     write_workbook,
 )
@@ -564,22 +565,39 @@ async def generate_session_artifacts(
         else xlsx_filename_default
     )
 
-    # Phase 5 layout PDF — Verify 원본 영수증 모음. 실 자료 없으면 빈 PDF.
+    # Phase 8.8 — tx-aware PDF 생성:
+    # PNG/JPG tx → layout_pdf (모아찍기), PDF tx → merged_pdf (원본 페이지 병합, 거래일 ASC).
+    # source_file_path 는 disk filename (relative) 또는 절대경로 둘 다 허용.
     upload_dir = request.app.state.file_manager.session_upload_dir(
         user_oid=user.oid, session_id=str(session_id),
     )
-    image_paths = sorted(p for p in upload_dir.iterdir() if p.is_file())
+    layout_images: list[bytes] = []
+    merged_items: list[tuple[date, bytes]] = []
     img_ext = (".png", ".jpg", ".jpeg")
-    images: list[bytes] = [
-        p.read_bytes() for p in image_paths if p.suffix.lower() in img_ext
-    ]
-    pdf_bytes = write_layout_pdf(images, per_page=3) if images else b""
-    pdf_filename = f"증빙_영수증_합본_{year:04d}_{month:02d}.pdf"
+    for tx in txs:
+        src = Path(tx.source_file_path)
+        if not src.is_absolute():
+            src = upload_dir / src
+        if not src.exists():
+            continue
+        suffix = src.suffix.lower()
+        content = src.read_bytes()
+        if suffix in img_ext:
+            layout_images.append(content)
+        elif suffix == ".pdf":
+            merged_items.append((tx.transaction_date, content))
 
-    # ZIP 묶음.
+    layout_bytes = write_layout_pdf(layout_images, per_page=3) if layout_images else b""
+    merged_bytes = write_merged_pdf(merged_items) or b""
+    layout_filename = f"증빙_영수증_모아찍기_{year:04d}_{month:02d}.pdf"
+    merged_filename = f"증빙_영수증_원본합본_{year:04d}_{month:02d}.pdf"
+
+    # ZIP 묶음 — 두 PDF 모두 포함 (각각 비어있지 않을 때만).
     zip_files: list[tuple[str, bytes]] = [(xlsx_filename, xlsx_bytes)]
-    if pdf_bytes:
-        zip_files.append((pdf_filename, pdf_bytes))
+    if layout_bytes:
+        zip_files.append((layout_filename, layout_bytes))
+    if merged_bytes:
+        zip_files.append((merged_filename, merged_bytes))
     zip_bytes = create_zip(zip_files)
     zip_filename = generate_zip_filename(year, month, user_name)
 
@@ -588,8 +606,10 @@ async def generate_session_artifacts(
         user_oid=user.oid, session_id=str(session_id), create=True,
     )
     (output_dir / xlsx_filename).write_bytes(xlsx_bytes)
-    if pdf_bytes:
-        (output_dir / pdf_filename).write_bytes(pdf_bytes)
+    if layout_bytes:
+        (output_dir / layout_filename).write_bytes(layout_bytes)
+    if merged_bytes:
+        (output_dir / merged_filename).write_bytes(merged_bytes)
     (output_dir / zip_filename).write_bytes(zip_bytes)
 
     # DB 영속 (replace — 멱등).
@@ -603,15 +623,26 @@ async def generate_session_artifacts(
             size_bytes=len(xlsx_bytes),
         ),
     ]
-    if pdf_bytes:
+    if layout_bytes:
         artifacts.append(
             GeneratedArtifact(
                 session_id=session_id,
                 user_id=db_user.id,
-                artifact_type="pdf",
-                fs_path=str(output_dir / pdf_filename),
-                display_filename=pdf_filename,
-                size_bytes=len(pdf_bytes),
+                artifact_type="layout_pdf",
+                fs_path=str(output_dir / layout_filename),
+                display_filename=layout_filename,
+                size_bytes=len(layout_bytes),
+            ),
+        )
+    if merged_bytes:
+        artifacts.append(
+            GeneratedArtifact(
+                session_id=session_id,
+                user_id=db_user.id,
+                artifact_type="merged_pdf",
+                fs_path=str(output_dir / merged_filename),
+                display_filename=merged_filename,
+                size_bytes=len(merged_bytes),
             ),
         )
     artifacts.append(
@@ -659,11 +690,11 @@ async def download_session_artifact(
     user: Annotated[UserInfo, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(_get_db)],
 ) -> FileResponse:
-    """Result 다운로드 — xlsx / pdf / zip. RFC 5987 한글 파일명 + IDOR."""
-    if kind not in ("xlsx", "pdf", "zip"):
+    """Result 다운로드 — xlsx / layout_pdf / merged_pdf / zip. RFC 5987 한글 파일명 + IDOR."""
+    if kind not in ("xlsx", "layout_pdf", "merged_pdf", "zip"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="kind ∈ xlsx / pdf / zip",
+            detail="kind ∈ xlsx / layout_pdf / merged_pdf / zip",
         )
     db_user = await user_repo.get_or_create_by_oid(db, oid=user.oid, name=user.name)
     await session_repo.get(db, user_id=db_user.id, session_id=session_id)

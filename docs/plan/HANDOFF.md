@@ -4,22 +4,22 @@
 > done.md 만 읽으면 곧장 작업 재개 가능.
 
 - 최종 갱신: 2026-05-15
-- HEAD commit: **f26ff56** (origin/v4 동기)
+- HEAD commit: **(P8.8 적용 후)** — 실제 SHA 는 git log 확인
 - 브랜치: 로컬 `main` → `origin/v4`
 
 ## 한 줄 요약
 
-> **Phase 7 (Frontend UI 5 화면) 완료 + Phase 8.1/8.2/8.3 적용**. 누적 백엔드
-> 250 + 프런트 133 = **383 GREEN**. 실 백엔드 + dev MSW 양쪽 사용 가능.
-> 다음: Phase 8.4~8.12 또는 운영 배포.
+> **Phase 7 (Frontend UI 5 화면) 완료 + Phase 8.1/8.2/8.3/8.8 적용**. 누적
+> 백엔드 250 단위 + 통합 34 (5 신규) + 프런트 133 = **417 GREEN**. PDF 다운로드
+> 422 해소. 다음: Phase 8.4~8.7, 8.9~8.12 또는 운영 배포.
 
 ## 누적 진척
 
 | 영역 | 단위 | 통합/e2e | 비고 |
 | --- | --- | --- | --- |
-| 백엔드 (pytest) | 250 (skip 1) | 통합 29 + smoke 42 | Phase 1~6 + 검증 fix |
+| 백엔드 (pytest) | 250 (skip 1) | 통합 34 + smoke 42 | Phase 1~6 + 검증 fix + 8.8 신규 5 |
 | 프런트 (vitest) | **133** | 9 Playwright spec | Phase 7 + 8.1/8.2/8.3 |
-| 합계 | **383** | + 80 통합/e2e/smoke | — |
+| 합계 | **417** | + 85 통합/e2e/smoke | — |
 
 mypy --strict, ruff, ESLint max-warnings 0, tsc --noEmit, pip-audit 모두 clean.
 
@@ -33,15 +33,17 @@ mypy --strict, ruff, ESLint max-warnings 0, tsc --noEmit, pip-audit 모두 clean
 | 8.1 셀 autocomplete | ✅ | commit 124cef8 |
 | 8.3 dev MSW worker | ✅ | commit 5f7c7bc |
 | 8.2 참석자 hybrid modal | ✅ | commit f26ff56 |
-| 8.4~8.12 | ⏸ 대기 | `docs/plan/phase-8-plan.md` §"Sub-phase 후보" |
+| 8.8 PDF 422 fix (kind 분리) | ✅ | FE/BE 계약 정렬, Alembic 0003, 통합 5 신규 |
+| 8.4~8.7, 8.9~8.12 | ⏸ 대기 | `docs/plan/phase-8-plan.md` Sub-phase 후보 |
 
 ## 동작 검증 (실 백엔드 + 합성 fixture)
 
 이전 세션에서 한 번 수행:
 1. Templates 등록 → Session 생성 → SSE → Transactions → Dashboard → Generate
    XLSX/ZIP → Download — **모두 정상**
-2. ⚠ layout_pdf / merged_pdf 다운로드 422 → 합성 영수증 PDF fixture 한계로 추정.
-   운영 실 영수증 JPG/PNG 필요. **Phase 8.8 후보**.
+2. ~~layout_pdf / merged_pdf 422~~ — **Phase 8.8 에서 fix 완료** (FE/BE 계약 정렬).
+   PDF 영수증 → `merged_pdf` (거래일 ASC 페이지 병합), PNG/JPG → `layout_pdf`
+   (per_page=3 모아찍기). 두 종 모두 ZIP 에 포함.
 
 ## Phase 8 잔여 sub-phase (plan-8 §"Sub-phase 후보" 순서)
 
@@ -51,16 +53,16 @@ mypy --strict, ruff, ESLint max-warnings 0, tsc --noEmit, pip-audit 모두 clean
 | 8.5 | Templates 풀 편집 (border/병합/줌/status bar) | 4-6h | UX 깊이 |
 | 8.6 | 메일 발송 (외부 SMTP / Graph API) | 4-6h | 새 기능 |
 | 8.7 | Baseline 사용자별 누적 평균 | 1-2h | 정확도 |
-| **8.8** | **PDF 422 조사 (검증 라운드 발견)** | **1-2h** | **버그 fix** |
+| ~~8.8~~ | ~~PDF 422 조사~~ — **완료 (2026-05-15)** | — | — |
 | 8.9 | 시각 회귀 (Chromatic / Percy) | 2-3h | 회귀 차단 |
 | 8.10 | Lighthouse / Bundle 분석 | 1h | 성능 metric |
 | 8.11 | docker-compose (UI + backend 통합) | 1-2h | 배포 인프라 |
 | 8.12 | CI 자동화 (GitHub Actions) | 2-3h | 자동 검증 |
 
-추천 우선순위:
-1. **8.8 PDF 조사** — 검증 라운드 미해결 이슈, 빠른 fix 가능
-2. **8.11 docker-compose** — 운영 배포 첫 step
-3. **8.12 CI** — pytest + vitest + playwright + 보안 gate 자동화
+추천 우선순위 (8.8 완료 후 갱신):
+1. **8.11 docker-compose** — 운영 배포 첫 step
+2. **8.12 CI** — pytest + vitest + playwright + 보안 gate 자동화
+3. **8.4 Templates 셀 편집** — UX 깊이
 
 ## 진행 재개 절차
 
@@ -99,9 +101,8 @@ cd /bj-dev/v4/ui && npm test && npm run typecheck && npm run lint && npm run bui
 ## 알려진 이슈
 
 1. **Playwright libnspr4** — 로컬 e2e 실행 시 `sudo npx playwright install-deps chromium` 필요. CI 환경(공식 Docker image) 에서는 자동.
-2. **PDF 422** (Phase 8.8 후보) — 합성 영수증 PDF fixture 로 generate 시 layout_pdf/merged_pdf 만 422. XLSX + ZIP 은 정상. 운영 실 영수증 입력에서 재현 필요.
-3. **UploadGuard MIME strict** — curl 등에서 multipart 업로드 시 `;type=application/...` 명시 필요. 브라우저는 자동.
-4. **React Router v7 future flag warning** — vitest log 에 경고. v7 마이그레이션 시 처리 (Phase 9+).
+2. **UploadGuard MIME strict** — curl 등에서 multipart 업로드 시 `;type=application/...` 명시 필요. 브라우저는 자동.
+3. **React Router v7 future flag warning** — vitest log 에 경고. v7 마이그레이션 시 처리 (Phase 9+).
 
 ## 참조 문서
 

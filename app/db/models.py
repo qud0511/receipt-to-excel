@@ -334,12 +334,13 @@ class ExpenseRecord(_TimestampMixin, Base):
     )
 
 
-# ── 12. GeneratedArtifact (Phase 6, ADR-010 D-4) ──────────────────────────────
+# ── 12. GeneratedArtifact (Phase 6, ADR-010 D-4; Phase 8.8 kind 분리) ─────────
 class GeneratedArtifact(Base):
-    """잡 완료 후 생성된 파일 (XLSX / PDF / ZIP) — Session 1:N artifacts.
+    """잡 완료 후 생성된 파일 (XLSX / layout PDF / merged PDF / ZIP) — Session 1:N.
 
-    ADR-010 추천 1 (다운로드 정책): layout PDF + XLSX + ZIP 묶음 = 3 row 영속.
-    raw merged PDF 는 layout 의 내부 단계로 흡수 — 별도 artifact 노출 안 함.
+    Phase 8.8: 단일 ``pdf`` kind 을 두 kind 로 분리.
+    - layout_pdf: PNG/JPG 영수증 → A4 모아찍기 (per_page=2~3, R11)
+    - merged_pdf: PDF 영수증 원본 → 거래일 ASC 페이지 병합
     """
 
     __tablename__ = "generated_artifact"
@@ -349,10 +350,10 @@ class GeneratedArtifact(Base):
         ForeignKey("upload_session.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
-    # xlsx: 지출결의서 / pdf: 증빙 영수증 합본 (모아찍기 layout) / zip: 위 2종 묶음.
-    artifact_type: Mapped[Literal["xlsx", "pdf", "zip"]] = mapped_column(String(8))
+    artifact_type: Mapped[Literal["xlsx", "layout_pdf", "merged_pdf", "zip"]] = mapped_column(
+        String(16)
+    )
     fs_path: Mapped[str] = mapped_column(String(512))
-    # 사용자가 보는 파일명 (R12 패턴 + user_name). 디스크 fs_path 와 분리.
     display_filename: Mapped[str] = mapped_column(String(255))
     size_bytes: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
@@ -361,7 +362,7 @@ class GeneratedArtifact(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "artifact_type IN ('xlsx', 'pdf', 'zip')",
+            "artifact_type IN ('xlsx', 'layout_pdf', 'merged_pdf', 'zip')",
             name="ck_generated_artifact_type",
         ),
         Index("ix_generated_artifact_session", "session_id", "user_id"),

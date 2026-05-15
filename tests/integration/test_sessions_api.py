@@ -233,3 +233,186 @@ def test_sse_stream_rejects_idor(client: TestClient) -> None:
     other_session_id = asyncio.run(_make_other_user_session())
     response = client.get(f"/sessions/{other_session_id}/stream")
     assert response.status_code in (403, 404)
+
+
+# ── P8.8 — PDF 422 fix: kind 계약 {xlsx, layout_pdf, merged_pdf, zip} ──────────
+
+
+def _make_real_png(*, width: int = 400, height: int = 600) -> bytes:
+    import io as _io
+
+    from PIL import Image as _Image
+
+    buf = _io.BytesIO()
+    _Image.new("RGB", (width, height), "white").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _register_template(client: TestClient) -> int:
+    from tests.fixtures.synthetic_xlsx import make_template
+
+    resp = client.post(
+        "/templates",
+        files={
+            "file": (
+                "양식.xlsx",
+                make_template(mode="hybrid"),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+        data={"name": "P8.8 양식"},
+    )
+    assert resp.status_code == 201, resp.text
+    return int(resp.json()["template_id"])
+
+
+def test_generate_with_pdf_receipt_persists_merged_pdf_kind(
+    client: TestClient,
+) -> None:
+    """PDF 영수증 입력 → kind='merged_pdf' artifact (kind='pdf' 아님)."""
+    from tests.fixtures.synthetic_pdfs import make_shinhan_receipt
+
+    template_id = _register_template(client)
+    pdf = make_shinhan_receipt(
+        merchant="가짜한식당",
+        transaction_dt="2026-05-03 12:30:00",
+        amount=15000,
+    )
+    upload = client.post(
+        "/sessions",
+        files={"receipts": ("receipt.pdf", pdf, "application/pdf")},
+        data={"year_month": "2026-05", "template_id": str(template_id)},
+    )
+    assert upload.status_code == 201, upload.text
+    session_id = upload.json()["session_id"]
+
+    gen = client.post(f"/sessions/{session_id}/generate")
+    assert gen.status_code == 200, gen.text
+    kinds = {a["kind"] for a in gen.json()["artifacts"]}
+    assert "merged_pdf" in kinds, kinds
+    assert "layout_pdf" not in kinds  # PNG/JPG tx 없음.
+    assert "pdf" not in kinds  # deprecated kind name.
+
+
+def test_download_merged_pdf_returns_pdf_magic(client: TestClient) -> None:
+    """GET /download/merged_pdf → 200 + %PDF magic."""
+    from tests.fixtures.synthetic_pdfs import make_shinhan_receipt
+
+    template_id = _register_template(client)
+    pdf = make_shinhan_receipt(transaction_dt="2026-05-03 12:30:00", amount=10000)
+    upload = client.post(
+        "/sessions",
+        files={"receipts": ("r.pdf", pdf, "application/pdf")},
+        data={"year_month": "2026-05", "template_id": str(template_id)},
+    )
+    session_id = upload.json()["session_id"]
+    gen = client.post(f"/sessions/{session_id}/generate")
+    assert gen.status_code == 200, gen.text
+
+    resp = client.get(f"/sessions/{session_id}/download/merged_pdf")
+    assert resp.status_code == 200, resp.text
+    assert resp.content.startswith(b"%PDF"), "merged_pdf magic"
+
+
+def test_download_pdf_kind_is_deprecated_returns_422(client: TestClient) -> None:
+    """legacy kind='pdf' 은 더 이상 허용 안 됨 → 422."""
+    files = {"receipts": ("a.png", _png_bytes(), "image/png")}
+    resp = client.post("/sessions", files=files, data={"year_month": "2026-05"})
+    session_id = resp.json()["session_id"]
+
+    bad = client.get(f"/sessions/{session_id}/download/pdf")
+    assert bad.status_code == 422, bad.text
+
+
+def test_generate_with_image_tx_persists_layout_pdf_kind(
+    client: TestClient,
+) -> None:
+    """PNG/JPG 영수증 (tx.source_file_path) → kind='layout_pdf' artifact."""
+    import uuid
+    from datetime import date
+
+    from app.db.models import Transaction, UploadSession, User
+
+    template_id = _register_template(client)
+    png = _make_real_png()
+
+    async def _seed() -> int:
+        fm = client.app.state.file_manager  # type: ignore[attr-defined]
+        sm = client.app.state.db_sessionmaker  # type: ignore[attr-defined]
+        async with sm() as db:
+            user = (await db.execute(
+                __import__("sqlalchemy").select(User).where(User.oid == "default")
+            )).scalar_one_or_none()
+            if user is None:
+                user = User(oid="default", name="기본", email=None)
+                db.add(user)
+                await db.flush()
+            sess = UploadSession(
+                user_id=user.id,
+                year_month="2026-05",
+                source_filenames=["a.png"],
+                status="awaiting_user",
+                template_id=template_id,
+            )
+            db.add(sess)
+            await db.flush()
+            session_id = sess.id
+
+            upload_dir = fm.session_upload_dir(
+                user_oid="default", session_id=str(session_id), create=True
+            )
+            disk_name = f"{uuid.uuid4().hex}.png"
+            (upload_dir / disk_name).write_bytes(png)
+
+            tx = Transaction(
+                session_id=session_id,
+                user_id=user.id,
+                merchant_name="가짜이미지가맹점",
+                transaction_date=date(2026, 5, 7),
+                amount=12000,
+                card_provider="shinhan",
+                parser_used="ocr_hybrid",
+                field_confidence={"가맹점명": "high"},
+                source_filename=disk_name,
+                source_file_path=str(upload_dir / disk_name),
+            )
+            db.add(tx)
+            await db.commit()
+            return int(session_id)
+
+    session_id = asyncio.run(_seed())
+
+    gen = client.post(f"/sessions/{session_id}/generate")
+    assert gen.status_code == 200, gen.text
+    kinds = {a["kind"] for a in gen.json()["artifacts"]}
+    assert "layout_pdf" in kinds, kinds
+    assert "merged_pdf" not in kinds  # PDF tx 없음.
+
+    dl = client.get(f"/sessions/{session_id}/download/layout_pdf")
+    assert dl.status_code == 200, dl.text
+    assert dl.content.startswith(b"%PDF"), "layout_pdf magic"
+
+
+def test_download_layout_pdf_rejects_other_user(client: TestClient) -> None:
+    """IDOR — 다른 사용자의 session_id /download/layout_pdf 접근 → 403/404."""
+
+    async def _make_other_session() -> int:
+        sm = client.app.state.db_sessionmaker  # type: ignore[attr-defined]
+        async with sm() as db:
+            other = User(oid="other-p88", name="o", email="o@x")
+            db.add(other)
+            await db.flush()
+            sess = UploadSession(
+                user_id=other.id,
+                year_month="2026-05",
+                source_filenames=["x.png"],
+                status="awaiting_user",
+            )
+            db.add(sess)
+            await db.flush()
+            await db.commit()
+            return int(sess.id)
+
+    other_id = asyncio.run(_make_other_session())
+    resp = client.get(f"/sessions/{other_id}/download/layout_pdf")
+    assert resp.status_code in (403, 404), resp.text

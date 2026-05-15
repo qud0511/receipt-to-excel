@@ -81,7 +81,9 @@ class ThisYearMetric(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     completed_count: int  # status='generated' 또는 submitted_at NOT NULL.
-    time_saved_hours: int  # baseline 15분/거래 누적.
+    # 학습 중(ready 세션 0개)이면 false — UI 가 "절약" 대신 "학습 중" 표기 분기.
+    baseline_ready: bool
+    time_saved_hours: int  # Phase 8.7: 사용자 누적 baseline 대비 절약(시간, 총합 비음수).
 
 
 class DashboardSummaryResponse(BaseModel):

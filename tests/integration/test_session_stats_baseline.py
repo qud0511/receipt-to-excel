@@ -210,3 +210,22 @@ def test_stats_missing_timestamps_processing_zero(client) -> None:
     assert body["baseline_ready"] is True
     assert body["baseline_s"] == 120
     assert body["time_saved_s"] == 120
+
+
+# ── dashboard 누적 baseline 집계 (Phase 8.7 Task 5 Part B) ───────────────────
+
+
+def test_dashboard_aggregates_ready_sessions(client) -> None:
+    _seed_session(client, baseline_ref=60.0, processing_s=100, tx_count=2)
+    _seed_session(client, baseline_ref=60.0, processing_s=80, tx_count=2)
+    body = client.get("/dashboard/summary").json()
+    assert body["this_year"]["baseline_ready"] is True
+    assert isinstance(body["this_year"]["time_saved_hours"], int)
+    assert body["this_year"]["time_saved_hours"] >= 0
+
+
+def test_dashboard_not_ready_when_no_ready_sessions(client) -> None:
+    _seed_session(client, baseline_ref=None, processing_s=100, tx_count=2)
+    body = client.get("/dashboard/summary").json()
+    assert body["this_year"]["baseline_ready"] is False
+    assert body["this_year"]["time_saved_hours"] == 0

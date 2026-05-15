@@ -67,6 +67,7 @@ from app.services.generators.xlsx_writer import (
 )
 from app.services.generators.zip_bundler import create_zip, generate_zip_filename
 from app.services.stats.baseline import next_baseline
+from app.services.stats.timing import elapsed_seconds
 from app.services.templates.analyzer import analyze_workbook
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -241,18 +242,6 @@ async def _run_job_background(
             await db.commit()
 
 
-def _elapsed_seconds(started: datetime, completed: datetime) -> float:
-    """경과 초. aiosqlite 가 tz 를 떨궈 naive 로 읽히므로 UTC 로 정규화 후 차감.
-
-    프로젝트는 항상 UTC 기록(CLAUDE.md) — naive=UTC 로 간주. aware 는 불변.
-    """
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=UTC)
-    if completed.tzinfo is None:
-        completed = completed.replace(tzinfo=UTC)
-    return (completed - started).total_seconds()
-
-
 def apply_session_baseline(
     db_user: User,
     upload_session: UploadSession,
@@ -273,7 +262,7 @@ def apply_session_baseline(
     completed = getattr(upload_session, "processing_completed_at", None)
     if started is None or completed is None:
         return
-    processing_s = _elapsed_seconds(started, completed)
+    processing_s = elapsed_seconds(started, completed)
     sample = processing_s / tx_count
     prior = db_user.baseline_s_per_tx
     upload_session.baseline_ref_s_per_tx = prior
@@ -834,7 +823,7 @@ async def get_session_stats(
     )
     tx_count = len(txs)
     if upload_session.processing_started_at and upload_session.processing_completed_at:
-        processing_s = _elapsed_seconds(
+        processing_s = elapsed_seconds(
             upload_session.processing_started_at,
             upload_session.processing_completed_at,
         )

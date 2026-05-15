@@ -24,10 +24,9 @@ from app.schemas.autocomplete import (
     ThisMonthMetric,
     ThisYearMetric,
 )
+from app.services.stats.timing import elapsed_seconds
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
-
-_BASELINE_MIN_PER_TRANSACTION = 15  # ADR-010 추천 5.
 
 
 async def _get_db(request: Request) -> AsyncIterator[AsyncSession]:
@@ -63,8 +62,8 @@ async def get_dashboard_summary(
 
     # 이번 년도 metric.
     completed_count = await _count_completed_sessions_this_year(db, db_user.id, now.year)
-    this_year_tx_count = await _count_transactions_this_year(db, db_user.id, now.year)
-    time_saved_hours = (this_year_tx_count * _BASELINE_MIN_PER_TRANSACTION) // 60
+    saved_s, baseline_ready = await _sum_time_saved_s_this_year(db, db_user.id, now.year)
+    time_saved_hours = max(0, round(saved_s / 3600))
 
     # 최근 결의서 list (5).
     recent = await _list_recent_expense_reports(db, db_user.id, limit=5)
@@ -79,6 +78,7 @@ async def get_dashboard_summary(
         ),
         this_year=ThisYearMetric(
             completed_count=completed_count,
+            baseline_ready=baseline_ready,
             time_saved_hours=time_saved_hours,
         ),
         recent_expense_reports=recent,
@@ -157,19 +157,44 @@ async def _count_completed_sessions_this_year(
     return int((await db.execute(stmt)).scalar() or 0)
 
 
-async def _count_transactions_this_year(
+async def _sum_time_saved_s_this_year(
     db: AsyncSession,
     user_id: int,
     year: int,
-) -> int:
+) -> tuple[float, bool]:
+    """올해 ready 세션(counted, baseline_ref NOT NULL)의 signed 절약초 합 + ready 여부.
+
+    signed = ref * tx_count - 처리초(elapsed_seconds, tz-safe).
+    """
     year_prefix = f"{year:04d}-"
-    stmt = (
+    tx_count_sq = (
         select(func.count(Transaction.id))
-        .join(UploadSession, Transaction.session_id == UploadSession.id)
-        .where(Transaction.user_id == user_id)
-        .where(UploadSession.year_month.startswith(year_prefix))
+        .where(Transaction.session_id == UploadSession.id)
+        .correlate(UploadSession)
+        .scalar_subquery()
     )
-    return int((await db.execute(stmt)).scalar() or 0)
+    rows = (
+        await db.execute(
+            select(
+                UploadSession.baseline_ref_s_per_tx,
+                UploadSession.processing_started_at,
+                UploadSession.processing_completed_at,
+                tx_count_sq,
+            )
+            .where(UploadSession.user_id == user_id)
+            .where(UploadSession.year_month.startswith(year_prefix))
+            .where(UploadSession.counted_in_baseline.is_(True))
+            .where(UploadSession.baseline_ref_s_per_tx.is_not(None))
+        )
+    ).all()
+    total = 0.0
+    ready = False
+    for ref, started, completed, txn in rows:
+        if ref is None or started is None or completed is None or txn <= 0:
+            continue
+        ready = True
+        total += ref * txn - elapsed_seconds(started, completed)
+    return total, ready
 
 
 def _calc_diff_pct(current: int, previous: int) -> float:
